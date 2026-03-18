@@ -38,6 +38,8 @@ This repository consumes a small set of published shared packages:
 - Primary operator-facing release artifact: Docker images plus `docker compose`
 - Internal development artifacts: workspace npm packages such as `@delexec/platform-api`, `@delexec/transport-relay`, and `@delexec/postgres-store`
 
+See also: `docs/current/guides/release-surface.md`
+
 ## How To Develop Here
 
 - Start here when the change affects operator deployment, server-side APIs, relay behavior, platform persistence, or image/compose delivery.

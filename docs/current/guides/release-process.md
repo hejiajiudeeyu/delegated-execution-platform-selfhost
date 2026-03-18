@@ -4,7 +4,6 @@ This repository uses a minimal self-hosted platform release process.
 
 ## Goals
 
-- produce versioned container images for `platform`, `buyer`, `seller`, and `relay`
 - produce versioned container images for `platform`, `gateway`, and `relay`
 - validate the operator-facing `public-stack` compose path in both source-build and published-image modes
 - keep the release bar small enough for L0 while preserving repeatability
