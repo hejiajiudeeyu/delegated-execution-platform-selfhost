@@ -39,7 +39,7 @@ Current limitation:
 3. Start the stack:
 
 ```bash
-docker compose -f deploy/public-stack/docker-compose.yml --env-file deploy/public-stack/.env up -d --build
+docker compose -f deploy/public-stack/docker-compose.yml --env-file deploy/public-stack/.env up -d
 ```
 
 4. Verify public health:
@@ -101,12 +101,8 @@ Recommended checks:
   - `npm run test:deploy:config`
 - source-build public stack smoke:
   - `npm run test:public-stack-smoke`
-- source-build all-in-one business-path smoke:
-  - `npm run test:compose-smoke`
-- local release-shaped image smoke:
-  - `npm run test:local-images-smoke`
 - published-image smoke:
-  - `npm run test:published-images-smoke`
+  - run the `Published Images Smoke` workflow
 
 `public-stack-smoke` validates:
 

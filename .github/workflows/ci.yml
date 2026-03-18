@@ -18,3 +18,23 @@ jobs:
       - run: npm run test:service:packages
       - run: npm run test:deploy:config
       - run: npm run test:release:docs
+
+  public-stack-compose-smoke:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_REGISTRY: local
+      IMAGE_TAG: ci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Warm base images
+        run: |
+          set -euo pipefail
+          docker pull postgres:16-alpine
+          docker pull node:22-alpine
+          docker pull caddy:2-alpine
+      - run: npm run test:public-stack-smoke

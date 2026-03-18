@@ -28,7 +28,7 @@ It includes:
    - `GET ${PUBLIC_SITE_ADDRESS%/}/gateway/healthz`
    - `GET ${PUBLIC_SITE_ADDRESS%/}/console/`
 5. Continue with the operator guide:
-   - [docs/current/guides/public-stack-operator-guide.md](/Users/hejiajiudeeyu/Documents/Projects/remote-subagent-protocol/docs/current/guides/public-stack-operator-guide.md)
+   - `docs/current/guides/public-stack-operator-guide.md`
 
 ## Public Routes
 
