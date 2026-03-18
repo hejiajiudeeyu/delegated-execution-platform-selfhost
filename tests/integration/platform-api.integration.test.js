@@ -2,10 +2,9 @@ import crypto from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { createPlatformServer, createPlatformState } from "@delexec/platform-api";
-import { createSellerControllerServer, createSellerState } from "@delexec/seller-controller";
 import { createRelayServer } from "@delexec/transport-relay";
-import { createRelayHttpTransportAdapter } from "@delexec/transport-relay-http";
 import { closeServer, jsonRequest, listenServer } from "../helpers/http.js";
+import { createRelayHttpTransportAdapter } from "../helpers/relay-http.js";
 
 describe("platform-api integration", () => {
   let server;

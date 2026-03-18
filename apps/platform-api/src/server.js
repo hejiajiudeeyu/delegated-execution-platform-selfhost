@@ -7,8 +7,8 @@ import { fileURLToPath } from "node:url";
 import { buildStructuredError, canonicalizeResultPackageForSignature } from "@delexec/contracts";
 import { createPostgresSnapshotStore } from "@delexec/postgres-store";
 import { createSqliteSnapshotStore } from "@delexec/sqlite-store";
-import { createRelayHttpTransportAdapter } from "@delexec/transport-relay-http";
 import { buildOpsEnvSearchPaths, loadEnvFiles } from "@delexec/runtime-utils";
+import { createRelayHttpTransportAdapter } from "./relay-http.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

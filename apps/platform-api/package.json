@@ -8,11 +8,7 @@
     "croc-platform-api": "src/server.js"
   },
   "bundleDependencies": [
-    "@delexec/contracts",
-    "@delexec/postgres-store",
-    "@delexec/runtime-utils",
-    "@delexec/sqlite-store",
-    "@delexec/transport-relay-http"
+    "@delexec/postgres-store"
   ],
   "main": "src/server.js",
   "exports": {
@@ -42,7 +38,6 @@
     "@delexec/postgres-store": "0.1.0",
     "@delexec/runtime-utils": "0.1.0",
     "@delexec/sqlite-store": "0.1.0",
-    "@delexec/transport-relay-http": "0.1.0",
     "better-sqlite3": "^12.6.2",
     "pg": "^8.20.0"
   }

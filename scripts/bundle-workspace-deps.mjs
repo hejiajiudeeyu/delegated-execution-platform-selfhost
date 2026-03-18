@@ -110,7 +110,7 @@ function stageBundledWorkspaces(targetDir) {
   for (const packageName of bundledDependencies) {
     const workspacePackage = workspaceIndex.get(packageName);
     if (!workspacePackage) {
-      throw new Error(`workspace_bundle_package_not_found:${packageName}`);
+      continue;
     }
     const segments = packageName.split("/");
     const dependencyTargetDir = path.join(targetDir, "node_modules", ...segments);

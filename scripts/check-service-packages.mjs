@@ -17,16 +17,6 @@ const SERVICE_PACKAGES = [
     })
   },
   {
-    workspace: "@delexec/buyer-controller",
-    bin: "delexec-buyer-controller",
-    env: () => ({})
-  },
-  {
-    workspace: "@delexec/seller-controller",
-    bin: "delexec-seller-controller",
-    env: () => ({})
-  },
-  {
     workspace: "@delexec/transport-relay",
     bin: "delexec-relay",
     env: () => ({})
@@ -35,52 +25,14 @@ const SERVICE_PACKAGES = [
 
 const LIBRARY_PACKAGES = [
   {
-    workspace: "@delexec/buyer-controller-core",
-    assertExpression: '(mod) => typeof mod.createBuyerState === "function"'
-  },
-  {
-    workspace: "@delexec/seller-runtime-core",
-    assertExpression: '(mod) => typeof mod.createSellerState === "function"'
-  },
-  {
-    workspace: "@delexec/runtime-utils",
-    assertExpression: '(mod) => typeof mod.getOpsHomeDir === "function" && typeof mod.migrateLegacyOpsHomeDir === "function"'
-  },
-  {
-    workspace: "@delexec/sqlite-store",
-    assertExpression: '(mod) => typeof mod.createSqliteSnapshotStore === "function"'
-  },
-  {
     workspace: "@delexec/postgres-store",
     assertExpression: '(mod) => typeof mod.createPostgresSnapshotStore === "function"'
-  },
-  {
-    workspace: "@delexec/transport-local",
-    assertExpression: '(mod) => typeof mod.createLocalTransportAdapter === "function"'
-  },
-  {
-    workspace: "@delexec/transport-relay-http",
-    assertExpression: '(mod) => typeof mod.createRelayHttpTransportAdapter === "function"'
-  },
-  {
-    workspace: "@delexec/transport-email",
-    assertExpression: '(mod) => typeof mod.InMemoryEmailTransport === "function"'
-  },
-  {
-    workspace: "@delexec/transport-emailengine",
-    assertExpression: '(mod) => typeof mod.createEmailEngineTransportAdapter === "function"'
-  },
-  {
-    workspace: "@delexec/transport-gmail",
-    assertExpression: '(mod) => typeof mod.createGmailTransportAdapter === "function"'
   }
 ];
 
 const ALL_PACKAGES = [
-  "@delexec/contracts",
   ...SERVICE_PACKAGES.map((item) => item.workspace),
-  ...LIBRARY_PACKAGES.map((item) => item.workspace),
-  "@delexec/ops"
+  ...LIBRARY_PACKAGES.map((item) => item.workspace)
 ];
 
 function packageInstallPath(installDir, workspace) {

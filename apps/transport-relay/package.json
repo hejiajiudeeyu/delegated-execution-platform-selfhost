@@ -7,10 +7,7 @@
     "delexec-relay": "src/server.js",
     "croc-relay": "src/server.js"
   },
-  "bundleDependencies": [
-    "@delexec/contracts",
-    "@delexec/runtime-utils"
-  ],
+  "bundleDependencies": [],
   "main": "src/server.js",
   "exports": {
     ".": "./src/server.js",

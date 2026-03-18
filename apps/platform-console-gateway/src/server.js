@@ -14,7 +14,7 @@ import {
   scrubLegacySecrets,
   unlockOpsSecrets,
   writeOpsSecrets
-} from "../../ops/src/config.js";
+} from "./config.js";
 import { initializeSecretStore, rotateSecretStorePassphrase } from "@delexec/runtime-utils";
 
 const SESSION_HEADER = "x-platform-console-session";
