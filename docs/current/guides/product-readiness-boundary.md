@@ -15,8 +15,6 @@ The repository is currently:
 Current strengths:
 
 - protocol main path is implemented
-- buyer / seller / platform reference implementations are present
-- local end-user bootstrap path exists
 - public operator stack exists
 - formal seller/subagent onboarding and hidden review tests exist
 
@@ -24,11 +22,9 @@ Current strengths:
 
 The following are supported today:
 
-- local end-user setup through `npm run ops -- bootstrap`
 - controlled seller/subagent onboarding with admin approval
-- self-hosted deployment using `deploy/platform`, `deploy/public-stack`, or `deploy/all-in-one`
-- source-build smoke validation
-- local release-shaped image validation
+- self-hosted deployment using `deploy/platform`, `deploy/public-stack`, or `deploy/relay`
+- source-build operator stack validation
 - published image validation through the GHCR-facing smoke workflow
 
 Good-fit use cases:
@@ -59,13 +55,11 @@ The following still block a stronger production claim:
 
 Current user promise:
 
-- an AI can help a user deploy the local client from the repository checkout
 - an operator can deploy the public stack with Docker Compose
 - both still assume a technically capable operator is present
 
 Current non-promise:
 
-- zero-touch package-manager distribution for end users
 - turnkey SaaS-grade hosted operations
 - managed secret lifecycle
 - full production observability
