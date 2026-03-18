@@ -4,6 +4,11 @@ Self-hosted platform, relay, deploy configs, and operator surfaces for delegated
 
 This repository contains the platform-side apps and self-hosted deployment materials split from the original monorepo.
 
+## AI Collaboration
+
+- `CLAUDE.md` defines the repository-specific development and validation rules.
+- `AGENTS.md` gives a minimal routing and ownership summary for AI coding agents.
+
 ## Public Product Surface
 
 The intended end-user entry for this repository is a Docker-based deployment flow:
