@@ -1,0 +1,26 @@
+{$PUBLIC_SITE_ADDRESS:http://localhost} {
+  encode gzip
+
+  handle /healthz {
+    respond "ok" 200
+  }
+
+  redir / /console/ 302
+  redir /console /console/ 302
+
+  handle_path /platform/* {
+    reverse_proxy platform-api:8080
+  }
+
+  handle_path /relay/* {
+    reverse_proxy relay:8090
+  }
+
+  handle_path /gateway/* {
+    reverse_proxy platform-console-gateway:8085
+  }
+
+  handle_path /console/* {
+    reverse_proxy platform-console-gateway:8085
+  }
+}

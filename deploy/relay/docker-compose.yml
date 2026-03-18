@@ -1,0 +1,19 @@
+services:
+  relay:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-relay:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/transport-relay
+    environment:
+      PORT: ${PORT:-8090}
+      SERVICE_NAME: transport-relay
+      RELAY_SQLITE_PATH: ${RELAY_SQLITE_PATH:-/data/relay.sqlite}
+    ports:
+      - "${PORT:-8090}:8090"
+    volumes:
+      - relay-data:/data
+
+volumes:
+  relay-data:

@@ -1,0 +1,31 @@
+{
+  "name": "delegated-execution-platform-selfhost",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Self-hosted platform, relay, deploy configs, and operator surfaces for delegated execution.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test:integration": "vitest run --config tests/config/vitest.integration.config.mjs",
+    "test:e2e": "node tests/reporters/reset-flow-report.mjs && vitest run --config tests/config/vitest.e2e.config.mjs && node tests/reporters/flow-issue-reporter.mjs",
+    "test:service:packages": "node scripts/check-service-packages.mjs",
+    "test:e2e:packages": "node scripts/check-packaged-e2e.mjs",
+    "test:deploy:config": "node scripts/check-deploy-configs.mjs",
+    "test:release:docs": "node scripts/check-release-docs.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@vitest/ui": "^3.2.4",
+    "happy-dom": "^20.8.3",
+    "pg": "^8.20.0",
+    "pg-mem": "^3.0.14",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  }
+}

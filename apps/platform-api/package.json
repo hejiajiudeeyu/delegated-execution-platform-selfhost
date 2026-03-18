@@ -1,0 +1,49 @@
+{
+  "name": "@delexec/platform-api",
+  "version": "0.1.0",
+  "description": "Self-hosted delegated execution platform API service",
+  "type": "module",
+  "bin": {
+    "delexec-platform-api": "src/server.js",
+    "croc-platform-api": "src/server.js"
+  },
+  "bundleDependencies": [
+    "@delexec/contracts",
+    "@delexec/postgres-store",
+    "@delexec/runtime-utils",
+    "@delexec/sqlite-store",
+    "@delexec/transport-relay-http"
+  ],
+  "main": "src/server.js",
+  "exports": {
+    ".": "./src/server.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "node ../../scripts/bundle-workspace-deps.mjs stage apps/platform-api",
+    "postpack": "node ../../scripts/bundle-workspace-deps.mjs cleanup apps/platform-api",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "delegated-execution",
+    "platform",
+    "selfhost"
+  ],
+  "dependencies": {
+    "@delexec/contracts": "0.1.0",
+    "@delexec/postgres-store": "0.1.0",
+    "@delexec/runtime-utils": "0.1.0",
+    "@delexec/sqlite-store": "0.1.0",
+    "@delexec/transport-relay-http": "0.1.0",
+    "better-sqlite3": "^12.6.2",
+    "pg": "^8.20.0"
+  }
+}

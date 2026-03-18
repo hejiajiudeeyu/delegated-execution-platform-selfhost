@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-croc}
+      POSTGRES_USER: ${POSTGRES_USER:-croc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-croc}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-croc} -d ${POSTGRES_DB:-croc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - platform-postgres-data:/var/lib/postgresql/data
+
+  platform-api:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-platform:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/platform-api
+    environment:
+      PORT: ${PORT:-8080}
+      SERVICE_NAME: platform-api
+      DATABASE_URL: ${DATABASE_URL:-postgresql://croc:croc@postgres:5432/croc}
+      TOKEN_SECRET: ${TOKEN_SECRET:?TOKEN_SECRET must be set}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-300}
+      PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:-}
+      TRANSPORT_BASE_URL: ${TRANSPORT_BASE_URL:-}
+      REVIEW_TRANSPORT_BASE_URL: ${REVIEW_TRANSPORT_BASE_URL:-}
+      ENABLE_BOOTSTRAP_SELLERS: ${ENABLE_BOOTSTRAP_SELLERS:-false}
+      BOOTSTRAP_SELLER_ID: ${BOOTSTRAP_SELLER_ID:-}
+      BOOTSTRAP_SUBAGENT_ID: ${BOOTSTRAP_SUBAGENT_ID:-}
+      BOOTSTRAP_TASK_DELIVERY_ADDRESS: ${BOOTSTRAP_TASK_DELIVERY_ADDRESS:-}
+      BOOTSTRAP_SELLER_API_KEY: ${BOOTSTRAP_SELLER_API_KEY:-}
+      BOOTSTRAP_SELLER_PUBLIC_KEY_PEM: ${BOOTSTRAP_SELLER_PUBLIC_KEY_PEM:-}
+      BOOTSTRAP_SELLER_PRIVATE_KEY_PEM: ${BOOTSTRAP_SELLER_PRIVATE_KEY_PEM:-}
+    ports:
+      - "${PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  platform-postgres-data:

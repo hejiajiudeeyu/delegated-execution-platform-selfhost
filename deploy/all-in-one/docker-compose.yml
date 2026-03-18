@@ -1,0 +1,120 @@
+name: croc-tavern-mvp
+
+services:
+  relay:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-relay:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/transport-relay
+    environment:
+      PORT: 8090
+      SERVICE_NAME: transport-relay
+      RELAY_SQLITE_PATH: /data/relay.sqlite
+    ports:
+      - "8090:8090"
+    volumes:
+      - relay-data:/data
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: croc
+      POSTGRES_USER: croc
+      POSTGRES_PASSWORD: croc
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U croc -d croc"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  platform-api:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-platform:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/platform-api
+    environment:
+      PORT: 8080
+      SERVICE_NAME: platform-api
+      DATABASE_URL: postgresql://croc:croc@postgres:5432/croc
+      TOKEN_SECRET: ${TOKEN_SECRET:-all-in-one-dev-token-secret}
+      BOOTSTRAP_SELLER_ID: seller_foxlab
+      BOOTSTRAP_SUBAGENT_ID: foxlab.text.classifier.v1
+      BOOTSTRAP_TASK_DELIVERY_ADDRESS: local://relay/seller_foxlab/foxlab.text.classifier.v1
+      BOOTSTRAP_SELLER_API_KEY: ${BOOTSTRAP_SELLER_API_KEY:-}
+      BOOTSTRAP_SELLER_PUBLIC_KEY_PEM: ${BOOTSTRAP_SELLER_PUBLIC_KEY_PEM:-}
+      BOOTSTRAP_SELLER_PRIVATE_KEY_PEM: ${BOOTSTRAP_SELLER_PRIVATE_KEY_PEM:-}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  buyer-controller:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-buyer:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/buyer-controller
+    environment:
+      PORT: 8081
+      SERVICE_NAME: buyer-controller
+      DATABASE_URL: postgresql://croc:croc@postgres:5432/croc
+      PLATFORM_API_BASE_URL: http://platform-api:8080
+      TRANSPORT_BASE_URL: http://relay:8090
+      TRANSPORT_RECEIVER: buyer-controller
+      TIMEOUT_CONFIRMATION_MODE: ask_by_default
+      HARD_TIMEOUT_AUTO_FINALIZE: "true"
+      BUYER_CONTROLLER_POLL_INTERVAL_ACTIVE_S: "5"
+      BUYER_CONTROLLER_POLL_INTERVAL_BACKOFF_S: "15"
+      BUYER_CONTROLLER_INBOX_POLL_INTERVAL_MS: "250"
+      BUYER_CONTROLLER_EVENTS_SYNC_INTERVAL_MS: "250"
+      BUYER_CONTROLLER_EVENTS_SYNC_BATCH_SIZE: "25"
+    ports:
+      - "8081:8081"
+    depends_on:
+      relay:
+        condition: service_started
+      platform-api:
+        condition: service_started
+
+  seller-controller:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-seller:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/seller-controller
+    environment:
+      PORT: 8082
+      SERVICE_NAME: seller-controller
+      DATABASE_URL: postgresql://croc:croc@postgres:5432/croc
+      PLATFORM_API_BASE_URL: http://platform-api:8080
+      TRANSPORT_BASE_URL: http://relay:8090
+      TRANSPORT_RECEIVER: seller_foxlab
+      PLATFORM_API_KEY: ${BOOTSTRAP_SELLER_API_KEY:-}
+      SELLER_ID: seller_foxlab
+      SUBAGENT_IDS: foxlab.text.classifier.v1
+      SELLER_SIGNING_PUBLIC_KEY_PEM: ${BOOTSTRAP_SELLER_PUBLIC_KEY_PEM:-}
+      SELLER_SIGNING_PRIVATE_KEY_PEM: ${BOOTSTRAP_SELLER_PRIVATE_KEY_PEM:-}
+      SELLER_INBOX_POLL_INTERVAL_MS: "250"
+      SELLER_WORKER_CONCURRENCY: ${SELLER_WORKER_CONCURRENCY:-1}
+    ports:
+      - "8082:8082"
+    depends_on:
+      relay:
+        condition: service_started
+      platform-api:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  relay-data:

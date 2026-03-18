@@ -1,0 +1,35 @@
+services:
+  seller-controller:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-seller:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/seller-controller
+    environment:
+      PORT: ${PORT:-8082}
+      SERVICE_NAME: seller-controller
+      PLATFORM_API_BASE_URL: ${PLATFORM_API_BASE_URL}
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      TRANSPORT_BASE_URL: ${TRANSPORT_BASE_URL}
+      TRANSPORT_RECEIVER: ${TRANSPORT_RECEIVER:-seller_foxlab}
+      DATABASE_URL: ${DATABASE_URL:-}
+      SELLER_ID: ${SELLER_ID:-seller_foxlab}
+      SUBAGENT_IDS: ${SUBAGENT_IDS:-foxlab.text.classifier.v1}
+      SELLER_SIGNING_PUBLIC_KEY_PEM: ${SELLER_SIGNING_PUBLIC_KEY_PEM:-}
+      SELLER_SIGNING_PRIVATE_KEY_PEM: ${SELLER_SIGNING_PRIVATE_KEY_PEM:-}
+      SELLER_MAX_HARD_TIMEOUT_S: ${SELLER_MAX_HARD_TIMEOUT_S:-300}
+      SELLER_ALLOWED_TASK_TYPES: ${SELLER_ALLOWED_TASK_TYPES:-}
+      SELLER_HEARTBEAT_INTERVAL_MS: ${SELLER_HEARTBEAT_INTERVAL_MS:-30000}
+      SELLER_INBOX_POLL_INTERVAL_MS: ${SELLER_INBOX_POLL_INTERVAL_MS:-250}
+      SELLER_WORKER_CONCURRENCY: ${SELLER_WORKER_CONCURRENCY:-1}
+      SQLITE_DATABASE_PATH: ${SQLITE_DATABASE_PATH:-/data/seller-controller.sqlite}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${PORT:-8082}:8082"
+    volumes:
+      - seller-data:/data
+
+volumes:
+  seller-data:

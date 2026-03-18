@@ -1,0 +1,92 @@
+name: public-stack
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-croc}
+      POSTGRES_USER: ${POSTGRES_USER:-croc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-croc}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-croc} -d ${POSTGRES_DB:-croc}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - public-stack-postgres-data:/var/lib/postgresql/data
+
+  relay:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-relay:${IMAGE_TAG:-latest}
+    environment:
+      PORT: ${RELAY_PORT:-8090}
+      SERVICE_NAME: transport-relay
+      RELAY_SQLITE_PATH: /data/relay.sqlite
+    volumes:
+      - public-stack-relay-data:/data
+
+  platform-api:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-platform:${IMAGE_TAG:-latest}
+    environment:
+      PORT: ${PLATFORM_PORT:-8080}
+      SERVICE_NAME: platform-api
+      DATABASE_URL: ${DATABASE_URL:-postgresql://croc:croc@postgres:5432/croc}
+      TOKEN_SECRET: ${TOKEN_SECRET:?TOKEN_SECRET must be set for public deployments}
+      TOKEN_TTL_SECONDS: ${TOKEN_TTL_SECONDS:-300}
+      PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:-}
+      TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
+      REVIEW_TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
+      ENABLE_BOOTSTRAP_SELLERS: ${ENABLE_BOOTSTRAP_SELLERS:-false}
+      BOOTSTRAP_SELLER_ID: ${BOOTSTRAP_SELLER_ID:-}
+      BOOTSTRAP_SUBAGENT_ID: ${BOOTSTRAP_SUBAGENT_ID:-}
+      BOOTSTRAP_TASK_DELIVERY_ADDRESS: ${BOOTSTRAP_TASK_DELIVERY_ADDRESS:-}
+      BOOTSTRAP_SELLER_API_KEY: ${BOOTSTRAP_SELLER_API_KEY:-}
+      BOOTSTRAP_SELLER_PUBLIC_KEY_PEM: ${BOOTSTRAP_SELLER_PUBLIC_KEY_PEM:-}
+      BOOTSTRAP_SELLER_PRIVATE_KEY_PEM: ${BOOTSTRAP_SELLER_PRIVATE_KEY_PEM:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      relay:
+        condition: service_started
+
+  platform-console-gateway:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-gateway:${IMAGE_TAG:-latest}
+    environment:
+      PORT: ${GATEWAY_PORT:-8085}
+      HOST: 0.0.0.0
+      DELEXEC_HOME: /var/lib/delexec-ops
+      PLATFORM_API_BASE_URL: http://platform-api:${PLATFORM_PORT:-8080}
+      PLATFORM_ADMIN_API_KEY: ${PLATFORM_ADMIN_API_KEY:-}
+      PLATFORM_CONSOLE_BOOTSTRAP_SECRET: ${PLATFORM_CONSOLE_BOOTSTRAP_SECRET:?PLATFORM_CONSOLE_BOOTSTRAP_SECRET must be set for public deployments}
+    volumes:
+      - public-stack-gateway-data:/var/lib/delexec-ops
+    depends_on:
+      platform-api:
+        condition: service_started
+
+  edge:
+    image: caddy:2-alpine
+    environment:
+      PUBLIC_SITE_ADDRESS: ${PUBLIC_SITE_ADDRESS:-http://localhost}
+    ports:
+      - "${PUBLIC_HTTP_PORT:-80}:80"
+      - "${PUBLIC_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - public-stack-caddy-data:/data
+      - public-stack-caddy-config:/config
+    depends_on:
+      platform-api:
+        condition: service_started
+      relay:
+        condition: service_started
+      platform-console-gateway:
+        condition: service_started
+
+volumes:
+  public-stack-postgres-data:
+  public-stack-relay-data:
+  public-stack-gateway-data:
+  public-stack-caddy-data:
+  public-stack-caddy-config:

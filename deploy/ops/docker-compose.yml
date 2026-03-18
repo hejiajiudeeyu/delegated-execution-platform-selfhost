@@ -1,0 +1,89 @@
+services:
+  relay:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-relay:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/transport-relay
+    environment:
+      PORT: ${RELAY_PORT:-8090}
+      SERVICE_NAME: transport-relay
+      RELAY_SQLITE_PATH: /data/relay.sqlite
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${RELAY_PORT:-8090}:8090"
+    volumes:
+      - relay-data:/data
+
+  buyer-controller:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-buyer:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/buyer-controller
+    environment:
+      PORT: ${BUYER_PORT:-8081}
+      SERVICE_NAME: buyer-controller
+      PLATFORM_API_BASE_URL: ${PLATFORM_API_BASE_URL}
+      PLATFORM_API_KEY: ${BUYER_PLATFORM_API_KEY:-}
+      TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
+      TRANSPORT_RECEIVER: ${BUYER_TRANSPORT_RECEIVER:-buyer-controller}
+      ACK_DEADLINE_S: ${ACK_DEADLINE_S:-120}
+      TIMEOUT_CONFIRMATION_MODE: ${TIMEOUT_CONFIRMATION_MODE:-ask_by_default}
+      HARD_TIMEOUT_AUTO_FINALIZE: ${HARD_TIMEOUT_AUTO_FINALIZE:-true}
+      BUYER_CONTROLLER_POLL_INTERVAL_ACTIVE_S: ${BUYER_CONTROLLER_POLL_INTERVAL_ACTIVE_S:-5}
+      BUYER_CONTROLLER_POLL_INTERVAL_BACKOFF_S: ${BUYER_CONTROLLER_POLL_INTERVAL_BACKOFF_S:-15}
+      BUYER_CONTROLLER_INBOX_POLL_INTERVAL_MS: ${BUYER_CONTROLLER_INBOX_POLL_INTERVAL_MS:-250}
+      BUYER_CONTROLLER_EVENTS_SYNC_INTERVAL_MS: ${BUYER_CONTROLLER_EVENTS_SYNC_INTERVAL_MS:-250}
+      SQLITE_DATABASE_PATH: /data/buyer-controller.sqlite
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${BUYER_PORT:-8081}:8081"
+    volumes:
+      - buyer-data:/data
+    depends_on:
+      relay:
+        condition: service_started
+
+  seller-controller:
+    profiles: ["seller"]
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-seller:${IMAGE_TAG:-latest}
+    build:
+      context: ../..
+      dockerfile: Dockerfile.workspace
+      args:
+        APP_PATH: apps/seller-controller
+    environment:
+      PORT: ${SELLER_PORT:-8082}
+      SERVICE_NAME: seller-controller
+      PLATFORM_API_BASE_URL: ${PLATFORM_API_BASE_URL}
+      PLATFORM_API_KEY: ""
+      TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
+      TRANSPORT_RECEIVER: ${SELLER_TRANSPORT_RECEIVER:-seller-local}
+      SELLER_ID: ${SELLER_ID:-seller_local}
+      SUBAGENT_IDS: ${SUBAGENT_IDS:-local.subagent.v1}
+      SELLER_SIGNING_PUBLIC_KEY_PEM: ${SELLER_SIGNING_PUBLIC_KEY_PEM:-}
+      SELLER_SIGNING_PRIVATE_KEY_PEM: ${SELLER_SIGNING_PRIVATE_KEY_PEM:-}
+      SELLER_MAX_HARD_TIMEOUT_S: ${SELLER_MAX_HARD_TIMEOUT_S:-300}
+      SELLER_ALLOWED_TASK_TYPES: ${SELLER_ALLOWED_TASK_TYPES:-}
+      SELLER_HEARTBEAT_INTERVAL_MS: ${SELLER_HEARTBEAT_INTERVAL_MS:-30000}
+      SELLER_INBOX_POLL_INTERVAL_MS: ${SELLER_INBOX_POLL_INTERVAL_MS:-250}
+      SQLITE_DATABASE_PATH: /data/seller-controller.sqlite
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${SELLER_PORT:-8082}:8082"
+    volumes:
+      - seller-data:/data
+    depends_on:
+      relay:
+        condition: service_started
+
+volumes:
+  buyer-data:
+  seller-data:
+  relay-data:

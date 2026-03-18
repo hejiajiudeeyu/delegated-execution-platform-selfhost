@@ -1,0 +1,42 @@
+{
+  "name": "@delexec/transport-relay",
+  "version": "0.1.0",
+  "description": "HTTP transport relay service for delegated execution",
+  "type": "module",
+  "bin": {
+    "delexec-relay": "src/server.js",
+    "croc-relay": "src/server.js"
+  },
+  "bundleDependencies": [
+    "@delexec/contracts",
+    "@delexec/runtime-utils"
+  ],
+  "main": "src/server.js",
+  "exports": {
+    ".": "./src/server.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "prepack": "node ../../scripts/bundle-workspace-deps.mjs stage apps/transport-relay",
+    "postpack": "node ../../scripts/bundle-workspace-deps.mjs cleanup apps/transport-relay",
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "delegated-execution",
+    "relay",
+    "transport"
+  ],
+  "dependencies": {
+    "@delexec/contracts": "0.1.0",
+    "@delexec/runtime-utils": "0.1.0",
+    "better-sqlite3": "^12.6.2"
+  }
+}

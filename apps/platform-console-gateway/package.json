@@ -1,0 +1,13 @@
+{
+  "name": "@delexec/platform-console-gateway",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "@delexec/contracts": "0.1.0",
+    "@delexec/runtime-utils": "0.1.0"
+  }
+}
