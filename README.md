@@ -14,15 +14,13 @@ The intended end-user entry for this repository is a Docker-based deployment flo
 
 The internal npm packages in this repository exist to support builds, tests, and image assembly. They are not the primary installation path for operators.
 
-## Current Prerequisites
+## Shared Dependencies
 
-This repository expects these published npm packages to exist before standalone install and CI can succeed:
+This repository consumes a small set of published shared packages:
 
 - `@delexec/contracts`
 - `@delexec/runtime-utils`
 - `@delexec/sqlite-store`
-
-Until those shared packages are available on npm, do not enable full standalone CI for this repository.
 
 ## Release Model
 
