@@ -41,7 +41,7 @@ describe("platform console gateway integration", () => {
     try {
       const consoleResponse = await fetch(`${gatewayUrl}/`);
       expect(consoleResponse.status).toBe(200);
-      expect(await consoleResponse.text()).toContain("Platform Control");
+      expect(await consoleResponse.text()).toContain("Platform Console");
 
       const sessionBefore = await jsonRequest(gatewayUrl, "/session");
       expect(sessionBefore.status).toBe(200);
