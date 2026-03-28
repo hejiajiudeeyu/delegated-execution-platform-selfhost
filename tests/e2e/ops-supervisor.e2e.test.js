@@ -22,8 +22,8 @@ describe("e2e: ops supervisor path", () => {
     process.env.DELEXEC_HOME = opsHome;
     process.env.OPS_PORT_SUPERVISOR = String(28000 + Math.floor(Math.random() * 1000));
     process.env.OPS_PORT_RELAY = String(29000 + Math.floor(Math.random() * 1000));
-    process.env.OPS_PORT_BUYER = String(30000 + Math.floor(Math.random() * 1000));
-    process.env.OPS_PORT_SELLER = String(31000 + Math.floor(Math.random() * 1000));
+    process.env.OPS_PORT_CALLER = String(30000 + Math.floor(Math.random() * 1000));
+    process.env.OPS_PORT_RESPONDER = String(31000 + Math.floor(Math.random() * 1000));
     platformAdminApiKey = `sk_admin_${crypto.randomBytes(12).toString("hex")}`;
 
     const platformPort = 32000 + Math.floor(Math.random() * 1000);
@@ -60,8 +60,8 @@ describe("e2e: ops supervisor path", () => {
         PLATFORM_API_BASE_URL: platformUrl,
         OPS_PORT_SUPERVISOR: process.env.OPS_PORT_SUPERVISOR,
         OPS_PORT_RELAY: process.env.OPS_PORT_RELAY,
-        OPS_PORT_BUYER: process.env.OPS_PORT_BUYER,
-        OPS_PORT_SELLER: process.env.OPS_PORT_SELLER
+        OPS_PORT_CALLER: process.env.OPS_PORT_CALLER,
+        OPS_PORT_RESPONDER: process.env.OPS_PORT_RESPONDER
       }
     });
     supervisorUrl = supervisor.baseUrl;
@@ -75,26 +75,26 @@ describe("e2e: ops supervisor path", () => {
     delete process.env.PLATFORM_API_BASE_URL;
     delete process.env.OPS_PORT_SUPERVISOR;
     delete process.env.OPS_PORT_RELAY;
-    delete process.env.OPS_PORT_BUYER;
-    delete process.env.OPS_PORT_SELLER;
+    delete process.env.OPS_PORT_CALLER;
+    delete process.env.OPS_PORT_RESPONDER;
   }, 30000);
 
-  it("completes request via setup -> register buyer -> submit review -> enable seller", async () => {
+  it("completes request via setup -> register caller -> submit review -> enable responder", async () => {
     await runCase({
       caseId: "e2e_ops_supervisor_success",
       name: "ops supervisor path should dispatch through unified local client",
       fallbackStepId: "H2-S1",
       run: async () => {
-        const buyer = await jsonRequest(supervisorUrl, "/auth/register-buyer", {
+        const caller = await jsonRequest(supervisorUrl, "/auth/register-caller", {
           method: "POST",
           body: { contact_email: "ops-e2e@test.local" }
         });
-        expect(buyer.status).toBe(201);
+        expect(caller.status).toBe(201);
 
-        const addSubagent = await jsonRequest(supervisorUrl, "/seller/subagents", {
+        const addHotline = await jsonRequest(supervisorUrl, "/responder/hotlines", {
           method: "POST",
           body: {
-            subagent_id: "ops.process.echo.v1",
+            hotline_id: "ops.process.echo.v1",
             display_name: "Ops Process Echo",
             task_types: ["text_classify"],
             capabilities: ["text.classify"],
@@ -105,38 +105,38 @@ describe("e2e: ops supervisor path", () => {
             }
           }
         });
-        expect(addSubagent.status).toBe(201);
+        expect(addHotline.status).toBe(201);
 
-        const review = await jsonRequest(supervisorUrl, "/seller/submit-review", {
+        const review = await jsonRequest(supervisorUrl, "/responder/submit-review", {
           method: "POST",
-          body: { seller_id: "seller_ops_e2e", display_name: "Ops E2E Seller" }
+          body: { responder_id: "responder_ops_e2e", display_name: "Ops E2E Responder" }
         });
         expect(review.status).toBe(201);
 
-        const enable = await jsonRequest(supervisorUrl, "/seller/enable", {
+        const enable = await jsonRequest(supervisorUrl, "/responder/enable", {
           method: "POST",
-          body: { seller_id: "seller_ops_e2e", display_name: "Ops E2E Seller" }
+          body: { responder_id: "responder_ops_e2e", display_name: "Ops E2E Responder" }
         });
         expect(enable.status).toBe(200);
 
         const adminHeader = { Authorization: `Bearer ${platformAdminApiKey}` };
-        const approveSeller = await jsonRequest(platformUrl, "/v1/admin/sellers/seller_ops_e2e/approve", {
+        const approveResponder = await jsonRequest(platformUrl, "/v2/admin/responders/responder_ops_e2e/approve", {
           method: "POST",
           headers: adminHeader,
-          body: { reason: "e2e approve seller" }
+          body: { reason: "e2e approve responder" }
         });
-        expect(approveSeller.status).toBe(200);
+        expect(approveResponder.status).toBe(200);
 
-        const approveSubagent = await jsonRequest(platformUrl, "/v1/admin/subagents/ops.process.echo.v1/approve", {
+        const approveHotline = await jsonRequest(platformUrl, "/v2/admin/hotlines/ops.process.echo.v1/approve", {
           method: "POST",
           headers: adminHeader,
-          body: { reason: "e2e approve subagent" }
+          body: { reason: "e2e approve hotline" }
         });
-        expect(approveSubagent.status).toBe(200);
+        expect(approveHotline.status).toBe(200);
 
         const selected = await waitFor(async () => {
-          const catalog = await jsonRequest(supervisorUrl, "/catalog/subagents?capability=text.classify");
-          const item = catalog.body?.items?.find((entry) => entry.subagent_id === "ops.process.echo.v1");
+          const catalog = await jsonRequest(supervisorUrl, "/catalog/hotlines?capability=text.classify");
+          const item = catalog.body?.items?.find((entry) => entry.hotline_id === "ops.process.echo.v1");
           if (!item) {
             throw new Error("catalog_not_ready");
           }
@@ -147,9 +147,9 @@ describe("e2e: ops supervisor path", () => {
           method: "POST",
           body: {
             request_id: `req_ops_supervisor_${Date.now()}`,
-            seller_id: selected.seller_id,
-            subagent_id: selected.subagent_id,
-            expected_signer_public_key_pem: selected.seller_public_key_pem,
+            responder_id: selected.responder_id,
+            hotline_id: selected.hotline_id,
+            expected_signer_public_key_pem: selected.responder_public_key_pem,
             task_type: "text_classify",
             input: { text: "ops supervisor path" },
             payload: { text: "ops supervisor path" },
@@ -184,53 +184,53 @@ describe("e2e: ops supervisor path", () => {
   it("completes the official local example self-call path", async () => {
     await runCase({
       caseId: "e2e_ops_example_success",
-      name: "official local example should complete buyer to seller self-call",
+      name: "official local example should complete caller to responder self-call",
       fallbackStepId: "H2-S1",
       run: async () => {
-        const sellerId = "seller_ops_example_e2e";
-        const buyer = await jsonRequest(supervisorUrl, "/auth/register-buyer", {
+        const responderId = "responder_ops_example_e2e";
+        const caller = await jsonRequest(supervisorUrl, "/auth/register-caller", {
           method: "POST",
           body: { contact_email: "ops-example-e2e@test.local" }
         });
-        expect(buyer.status).toBe(201);
+        expect(caller.status).toBe(201);
 
-        const addExample = await jsonRequest(supervisorUrl, "/seller/subagents/example", {
+        const addExample = await jsonRequest(supervisorUrl, "/responder/hotlines/example", {
           method: "POST",
           body: {}
         });
         expect(addExample.status).toBe(201);
-        expect(addExample.body.subagent_id).toBe("local.summary.v1");
+        expect(addExample.body.hotline_id).toBe("local.summary.v1");
 
-        const review = await jsonRequest(supervisorUrl, "/seller/submit-review", {
+        const review = await jsonRequest(supervisorUrl, "/responder/submit-review", {
           method: "POST",
-          body: { seller_id: sellerId, display_name: "Ops Example Seller" }
+          body: { responder_id: responderId, display_name: "Ops Example Responder" }
         });
         expect(review.status).toBe(201);
 
-        const enable = await jsonRequest(supervisorUrl, "/seller/enable", {
+        const enable = await jsonRequest(supervisorUrl, "/responder/enable", {
           method: "POST",
-          body: { seller_id: sellerId, display_name: "Ops Example Seller" }
+          body: { responder_id: responderId, display_name: "Ops Example Responder" }
         });
         expect(enable.status).toBe(200);
 
         const adminHeader = { Authorization: `Bearer ${platformAdminApiKey}` };
-        const approveSeller = await jsonRequest(platformUrl, `/v1/admin/sellers/${sellerId}/approve`, {
+        const approveResponder = await jsonRequest(platformUrl, `/v2/admin/responders/${responderId}/approve`, {
           method: "POST",
           headers: adminHeader,
-          body: { reason: "e2e approve example seller" }
+          body: { reason: "e2e approve example responder" }
         });
-        expect(approveSeller.status).toBe(200);
+        expect(approveResponder.status).toBe(200);
 
-        const approveSubagent = await jsonRequest(platformUrl, "/v1/admin/subagents/local.summary.v1/approve", {
+        const approveHotline = await jsonRequest(platformUrl, "/v2/admin/hotlines/local.summary.v1/approve", {
           method: "POST",
           headers: adminHeader,
-          body: { reason: "e2e approve example subagent" }
+          body: { reason: "e2e approve example hotline" }
         });
-        expect(approveSubagent.status).toBe(200);
+        expect(approveHotline.status).toBe(200);
 
         await waitFor(async () => {
-          const catalog = await jsonRequest(supervisorUrl, "/catalog/subagents?subagent_id=local.summary.v1");
-          const item = catalog.body?.items?.find((entry) => entry.subagent_id === "local.summary.v1");
+          const catalog = await jsonRequest(supervisorUrl, "/catalog/hotlines?hotline_id=local.summary.v1");
+          const item = catalog.body?.items?.find((entry) => entry.hotline_id === "local.summary.v1");
           if (!item) {
             throw new Error("catalog_not_ready");
           }

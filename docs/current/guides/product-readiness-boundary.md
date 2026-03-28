@@ -16,13 +16,13 @@ Current strengths:
 
 - protocol main path is implemented
 - public operator stack exists
-- formal seller/subagent onboarding and hidden review tests exist
+- formal responder/hotline onboarding and hidden review tests exist
 
 ## Pilot-Ready Means
 
 The following are supported today:
 
-- controlled seller/subagent onboarding with admin approval
+- controlled responder/hotline onboarding with admin approval
 - self-hosted deployment using `deploy/platform`, `deploy/public-stack`, or `deploy/relay`
 - source-build operator stack validation
 - published image validation through the GHCR-facing smoke workflow

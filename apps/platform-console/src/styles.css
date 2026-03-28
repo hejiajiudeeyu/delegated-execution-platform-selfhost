@@ -1,10 +1,71 @@
+/**
+ * platform-console styles — CALL ANYTHING console mode (platform theme)
+ *
+ * Design tokens source: call-anything-brand-site/src/styles/delexec-console-tokens.css
+ * Accent color: --brand-purple (#8b5cf6) — platform semantic color
+ * Keep token block in sync with canonical source when updating brand tokens.
+ */
+
+/* ── Brand semantic palette ──────────────────────────────────────────────── */
 :root {
+  --brand-green: #a3e635;
+  --brand-blue: #3b82f6;
+  --brand-teal: #14b8a6;
+  --brand-orange: #f97316;
+  --brand-purple: #8b5cf6;
+  --brand-yellow: #facc15;
+  --brand-ink: #111111;
+  --brand-paper: #f7f2e8;
+  --brand-secondary: #ece6d7;
+  --brand-muted: #5f5a50;
+
+  /* ── Console geometry ──────────────────────────────────────────────────── */
+  --c-radius: 4px;
+  --c-radius-sm: 2px;
+  --c-radius-lg: 8px;
+  --c-radius-pill: 999px;
+
+  /* ── Typography ────────────────────────────────────────────────────────── */
+  --c-font: "Space Grotesk", "IBM Plex Sans", "Avenir Next", sans-serif;
+  --c-font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  /* ── Platform-mode accent (purple) ────────────────────────────────────── */
+  --c-accent: var(--brand-purple);
+  --c-accent-fg: #ffffff;
+  --c-accent-soft: rgba(139, 92, 246, 0.12);
+  --c-accent-muted: #7c3aed;
+
+  /* ── Page surface ──────────────────────────────────────────────────────── */
+  --c-bg: #f4f3f8;
+  --c-surface: rgba(252, 251, 255, 0.92);
+  --c-surface-raised: rgba(255, 255, 255, 0.96);
+  --c-border: rgba(17, 17, 17, 0.09);
+  --c-border-medium: rgba(17, 17, 17, 0.16);
+  --c-shadow: 0 2px 12px rgba(17, 17, 17, 0.07);
+  --c-text: #111111;
+  --c-text-secondary: #3f3d4a;
+  --c-text-muted: #70697f;
+
+  /* ── Status colors ─────────────────────────────────────────────────────── */
+  --c-status-success-bg: #d4ece1;
+  --c-status-success-fg: #1b5d48;
+  --c-status-warn-bg: #e8e0c8;
+  --c-status-warn-fg: #86611e;
+  --c-status-info-bg: #dde7ee;
+  --c-status-info-fg: #305367;
+  --c-status-error-bg: #f1ddd8;
+  --c-status-error-fg: #8a3f2a;
+  --c-status-degraded-bg: #f1e5cf;
+  --c-status-degraded-fg: #8a5d1f;
+
+  /* ── Terminal ──────────────────────────────────────────────────────────── */
+  --c-terminal-bg: #111111;
+  --c-terminal-fg: #e0d9f8;
+
   color-scheme: light;
-  font-family: "IBM Plex Sans", "Avenir Next", "Helvetica Neue", sans-serif;
-  background:
-    radial-gradient(circle at top right, rgba(97, 176, 255, 0.24), transparent 25%),
-    linear-gradient(180deg, #eef4f6 0%, #dfe9ec 100%);
-  color: #1a2429;
+  font-family: var(--c-font);
+  background: var(--c-bg);
+  color: var(--c-text);
 }
 
 * {
@@ -21,134 +82,163 @@ body {
   padding: 32px 20px 48px;
 }
 
+/* ── Cards & hero ──────────────────────────────────────────────────────────── */
+
 .hero,
 .card {
-  border: 1px solid rgba(33, 58, 73, 0.12);
-  background: rgba(247, 251, 252, 0.88);
-  box-shadow: 0 18px 40px rgba(24, 46, 64, 0.1);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  box-shadow: var(--c-shadow);
 }
 
 .hero {
-  border-radius: 28px;
-  padding: 32px;
+  border-radius: var(--c-radius-lg);
+  padding: 28px 32px;
   display: flex;
   justify-content: space-between;
   gap: 24px;
   align-items: flex-start;
 }
 
+.card {
+  border-radius: var(--c-radius-lg);
+  padding: 22px 24px;
+}
+
+/* ── Typography ────────────────────────────────────────────────────────────── */
+
 .eyebrow {
   margin: 0 0 8px;
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: #2f6d87;
+  color: var(--c-accent-muted);
+  font-weight: 600;
 }
 
 h1,
 h2 {
   margin: 0 0 10px;
-  font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+  font-family: var(--c-font);
+  letter-spacing: -0.025em;
 }
 
 h1 {
-  font-size: clamp(2.3rem, 5vw, 4.6rem);
-  line-height: 0.96;
+  font-size: clamp(2rem, 4vw, 3.4rem);
+  line-height: 1;
+  font-weight: 800;
 }
 
 h2 {
-  font-size: 1.3rem;
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 
 .lede,
 .note {
   margin: 0;
   max-width: 64ch;
-  color: #4c5f67;
+  color: var(--c-text-secondary);
 }
+
+/* ── Pills ─────────────────────────────────────────────────────────────────── */
 
 .status-block {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 
 .pill {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: #1f4f6a;
-  color: #f4fbff;
-  font-size: 0.85rem;
+  padding: 7px 12px;
+  border-radius: var(--c-radius-pill);
+  background: var(--c-accent);
+  color: var(--c-accent-fg);
+  font-size: 0.82rem;
+  font-weight: 600;
 }
 
 .pill.cool {
-  background: #2f6d87;
+  background: var(--brand-blue);
 }
 
 .pill.warm {
-  background: #b06a35;
+  background: var(--brand-orange);
 }
+
+.pill.muted {
+  background: var(--brand-secondary);
+  color: var(--brand-ink);
+}
+
+/* ── Layout helpers ─────────────────────────────────────────────────────────── */
 
 .grid.two {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 18px;
-  margin-top: 20px;
+  gap: 16px;
+  margin-top: 18px;
 }
 
 .grid.three {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .grid.three-panels {
   display: grid;
   grid-template-columns: 1.2fr 1fr 1fr;
-  gap: 18px;
-  margin-top: 20px;
-}
-
-.card {
-  border-radius: 24px;
-  padding: 24px;
+  gap: 16px;
+  margin-top: 18px;
 }
 
 .endpoint {
-  margin-top: 20px;
+  margin-top: 18px;
 }
 
 .section-head {
   display: flex;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   align-items: center;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
+
+/* ── Form elements ──────────────────────────────────────────────────────────── */
 
 label {
   display: block;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #5c7480;
-  margin: 14px 0 8px;
+  color: var(--c-text-muted);
+  font-weight: 600;
+  margin: 14px 0 6px;
 }
 
 input {
   width: 100%;
-  border: 1px solid rgba(33, 58, 73, 0.16);
-  border-radius: 14px;
-  padding: 12px 14px;
+  border: 1px solid var(--c-border-medium);
+  border-radius: var(--c-radius);
+  padding: 10px 12px;
   font: inherit;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--c-surface-raised);
+  color: var(--c-text);
 }
+
+input:focus {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 1px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
 
 .actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-top: 14px;
 }
 
 .actions.inline {
@@ -156,64 +246,78 @@ input {
 }
 
 button {
-  border: 0;
-  border-radius: 14px;
-  padding: 12px 16px;
+  border: 1px solid transparent;
+  border-radius: var(--c-radius);
+  padding: 9px 16px;
   font: inherit;
+  font-size: 0.88rem;
   font-weight: 700;
-  background: #1f4f6a;
-  color: #f4fbff;
+  background: var(--c-accent);
+  color: var(--c-accent-fg);
   cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+button:hover {
+  opacity: 0.88;
 }
 
 button.ghost {
-  background: #dbe8ee;
-  color: #1f4f6a;
+  background: var(--brand-secondary);
+  color: var(--brand-ink);
+  border-color: var(--c-border-medium);
 }
 
+/* ── Terminal output ────────────────────────────────────────────────────────── */
+
 .output {
-  min-height: 220px;
+  min-height: 200px;
   overflow: auto;
-  margin: 18px 0 0;
-  padding: 16px;
-  border-radius: 18px;
-  background: #15232b;
-  color: #d9f1ff;
-  font-size: 0.86rem;
-  line-height: 1.5;
+  margin: 16px 0 0;
+  padding: 14px 16px;
+  border-radius: var(--c-radius);
+  background: var(--c-terminal-bg);
+  color: var(--c-terminal-fg);
+  font-family: var(--c-font-mono);
+  font-size: 0.84rem;
+  line-height: 1.55;
 }
 
 .output.compact {
-  min-height: 320px;
+  min-height: 300px;
 }
+
+/* ── Queue placeholder ──────────────────────────────────────────────────────── */
 
 .queue-placeholder {
   display: grid;
-  gap: 12px;
-  margin-top: 18px;
-}
-
-.queue-placeholder div {
-  border: 1px dashed rgba(33, 58, 73, 0.2);
-  border-radius: 16px;
-  padding: 16px;
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  color: #4c5f67;
-}
-
-.stack {
-  display: grid;
-  gap: 12px;
+  gap: 10px;
   margin-top: 16px;
 }
 
+.queue-placeholder div {
+  border: 1px dashed var(--c-border-medium);
+  border-radius: var(--c-radius);
+  padding: 14px;
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  color: var(--c-text-muted);
+}
+
+/* ── Item cards ─────────────────────────────────────────────────────────────── */
+
+.stack {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
 .item-card {
-  border: 1px solid rgba(33, 58, 73, 0.14);
-  border-radius: 18px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid var(--c-border);
+  border-radius: var(--c-radius);
+  padding: 14px 16px;
+  background: var(--c-surface-raised);
 }
 
 .item-head {
@@ -225,46 +329,53 @@ button.ghost {
 
 .item-head p,
 .meta {
-  margin: 6px 0 0;
-  color: #5a6f79;
-  font-size: 0.92rem;
+  margin: 5px 0 0;
+  color: var(--c-text-muted);
+  font-size: 0.9rem;
 }
 
+/* ── Status badges ──────────────────────────────────────────────────────────── */
+
 .status {
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 0.78rem;
+  border-radius: var(--c-radius-pill);
+  padding: 4px 9px;
+  font-size: 0.74rem;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
 }
 
 .status.active,
 .status.healthy {
-  background: #d4ece1;
-  color: #1b5d48;
+  background: var(--c-status-success-bg);
+  color: var(--c-status-success-fg);
 }
 
 .status.disabled,
 .status.offline {
-  background: #f1ddd8;
-  color: #8a3f2a;
+  background: var(--c-status-error-bg);
+  color: var(--c-status-error-fg);
 }
 
 .status.degraded {
-  background: #f1e5cf;
-  color: #8a5d1f;
+  background: var(--c-status-degraded-bg);
+  color: var(--c-status-degraded-fg);
 }
 
+/* ── Empty states ───────────────────────────────────────────────────────────── */
+
 .empty {
-  border: 1px dashed rgba(33, 58, 73, 0.2);
-  border-radius: 18px;
-  padding: 18px;
-  color: #5a6f79;
+  border: 1px dashed var(--c-border-medium);
+  border-radius: var(--c-radius);
+  padding: 16px;
+  color: var(--c-text-muted);
 }
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
 
 @media (max-width: 720px) {
   .shell {
-    padding: 16px 14px 32px;
+    padding: 14px 12px 28px;
   }
 
   .hero {

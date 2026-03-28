@@ -1,14 +1,14 @@
-# Contributing to Remote Subagent Protocol
+# Contributing to Remote Hotline Protocol
 
-感谢你参与 Remote Subagent Protocol。
+感谢你参与 Remote Hotline Protocol。
 
-本仓库当前处于 MVP 设计与实现早期，贡献目标是快速验证 `Remote Subagent Protocol` 闭环，并打磨首个参考实现，而不是一次性做完整生产系统。
+本仓库当前处于 MVP 设计与实现早期，贡献目标是快速验证 `Remote Hotline Protocol` 闭环，并打磨首个参考实现，而不是一次性做完整生产系统。
 
 ## 1. 贡献范围
 
 欢迎以下类型贡献：
 - 文档与接口规范完善（`docs/`）
-- Buyer/Seller 参考实现与示例
+- Caller/Responder 参考实现与示例
 - Platform Minimal Service（catalog/token/events/metrics）实现
 - Playground 交互演示与说明一致性修复
 - 测试、可观测性、开发者体验改进

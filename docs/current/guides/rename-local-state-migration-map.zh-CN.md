@@ -29,7 +29,7 @@
 
 - `croc-ops` 作为兼容 bin 暂时保留，但正式文档只写 `delexec-ops`
 - `CROC_OPS_HOME` 作为旧环境变量兼容保留，但 `DELEXEC_HOME` 为正式变量
-- 默认路径会把 `~/.remote-subagent/` 自动迁移到 `~/.delexec/`
+- 默认路径会把 `~/.remote-hotline/` 自动迁移到 `~/.delexec/`
 - 旧 `croc.sqlite` 会在目标目录内自动迁移为 `delexec.sqlite`
 
 ## 扫描规则

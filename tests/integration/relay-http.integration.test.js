@@ -25,34 +25,34 @@ describe("relay-http transport integration", () => {
     const relayUrl = await listenServer(relayServer);
     cleanup.push(() => closeServer(relayServer));
 
-    const buyer = createRelayHttpTransportAdapter({
+    const caller = createRelayHttpTransportAdapter({
       baseUrl: relayUrl,
-      receiver: "buyer-controller"
+      receiver: "caller-controller"
     });
 
-    await buyer.send({
-      to: "local://relay/seller_foxlab/foxlab.text.classifier.v1",
+    await caller.send({
+      to: "local://relay/responder_foxlab/foxlab.text.classifier.v1",
       thread_id: "thread_1",
       request_id: "req_relay_1",
       payload: { prompt: "hello" }
     });
 
-    const seller = createRelayHttpTransportAdapter({
+    const responder = createRelayHttpTransportAdapter({
       baseUrl: relayUrl,
-      receiver: "seller_foxlab"
+      receiver: "responder_foxlab"
     });
 
-    const polled = await seller.poll();
+    const polled = await responder.poll();
     expect(polled.items).toHaveLength(1);
     expect(polled.items[0].request_id).toBe("req_relay_1");
 
-    const peeked = await seller.peek({ thread_id: "thread_1" });
+    const peeked = await responder.peek({ thread_id: "thread_1" });
     expect(peeked.items).toHaveLength(1);
 
-    const acked = await seller.ack(polled.items[0].message_id);
+    const acked = await responder.ack(polled.items[0].message_id);
     expect(acked.acked).toBe(true);
 
-    const empty = await seller.poll();
+    const empty = await responder.poll();
     expect(empty.items).toHaveLength(0);
   });
 });

@@ -13,10 +13,10 @@ This profile deploys `platform-api` with PostgreSQL on a single host.
 
 Important defaults:
 
-- `deploy/platform` is production-oriented and now defaults to `ENABLE_BOOTSTRAP_SELLERS=false`
-- it does **not** expose a pre-approved demo seller unless you explicitly opt in
-- for local/demo bootstrap sellers, prefer `deploy/all-in-one` or set:
-  - `ENABLE_BOOTSTRAP_SELLERS=true`
-  - `BOOTSTRAP_SELLER_ID`
-  - `BOOTSTRAP_SUBAGENT_ID`
+- `deploy/platform` is production-oriented and now defaults to `ENABLE_BOOTSTRAP_RESPONDERS=false`
+- it does **not** expose a pre-approved demo responder unless you explicitly opt in
+- for local/demo bootstrap responders, prefer `deploy/all-in-one` or set:
+  - `ENABLE_BOOTSTRAP_RESPONDERS=true`
+  - `BOOTSTRAP_RESPONDER_ID`
+  - `BOOTSTRAP_HOTLINE_ID`
   - `BOOTSTRAP_TASK_DELIVERY_ADDRESS`

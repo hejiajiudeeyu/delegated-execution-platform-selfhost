@@ -8,8 +8,8 @@ import { resolveHttpServiceLaunch, stopNodeHttpService, startNodeHttpService } f
 const ROOT_DIR = process.cwd();
 const PLATFORM_ENTRY = path.join(ROOT_DIR, "apps/platform-api/src/server.js");
 const RELAY_ENTRY = path.join(ROOT_DIR, "apps/transport-relay/src/server.js");
-const BUYER_ENTRY = path.join(ROOT_DIR, "apps/buyer-controller/src/server.js");
-const SELLER_ENTRY = path.join(ROOT_DIR, "apps/seller-controller/src/server.js");
+const CALLER_ENTRY = path.join(ROOT_DIR, "apps/caller-controller/src/server.js");
+const RESPONDER_ENTRY = path.join(ROOT_DIR, "apps/responder-controller/src/server.js");
 
 function randomPort(base) {
   return base + Math.floor(Math.random() * 500);
@@ -25,20 +25,20 @@ function generateSigningPair() {
 
 export async function startHttpProcessSystem() {
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), "rsp-http-e2e-"));
-  const sellerId = `seller_http_${crypto.randomBytes(4).toString("hex")}`;
-  const subagentId = "foxlab.text.classifier.v1";
-  const sellerApiKey = `sk_seller_${crypto.randomBytes(12).toString("hex")}`;
+  const responderId = `responder_http_${crypto.randomBytes(4).toString("hex")}`;
+  const hotlineId = "foxlab.text.classifier.v1";
+  const responderApiKey = `sk_responder_${crypto.randomBytes(12).toString("hex")}`;
   const signing = generateSigningPair();
   const relayPort = randomPort(41000);
   const platformPort = randomPort(42000);
-  const buyerPort = randomPort(43000);
-  const sellerPort = randomPort(44000);
+  const callerPort = randomPort(43000);
+  const responderPort = randomPort(44000);
 
   const sharedEnv = {
     DELEXEC_HOME: runtimeDir,
     DATABASE_URL: "",
     SQLITE_DATABASE_PATH: "",
-    ENABLE_BOOTSTRAP_SELLERS: "true",
+    ENABLE_BOOTSTRAP_RESPONDERS: "true",
     PLATFORM_ADMIN_API_KEY: `sk_admin_${crypto.randomBytes(12).toString("hex")}`
   };
 
@@ -68,59 +68,59 @@ export async function startHttpProcessSystem() {
       ...sharedEnv,
       SERVICE_NAME: "platform-api-http-e2e",
       TOKEN_SECRET: `test-token-secret-${crypto.randomBytes(8).toString("hex")}`,
-      BOOTSTRAP_SELLER_ID: sellerId,
-      BOOTSTRAP_SUBAGENT_ID: subagentId,
-      BOOTSTRAP_TASK_DELIVERY_ADDRESS: `local://relay/${sellerId}/${subagentId}`,
-      BOOTSTRAP_SELLER_API_KEY: sellerApiKey,
-      BOOTSTRAP_SELLER_PUBLIC_KEY_PEM: signing.publicKeyPem.replace(/\n/g, "\\n"),
-      BOOTSTRAP_SELLER_PRIVATE_KEY_PEM: signing.privateKeyPem.replace(/\n/g, "\\n")
+      BOOTSTRAP_RESPONDER_ID: responderId,
+      BOOTSTRAP_HOTLINE_ID: hotlineId,
+      BOOTSTRAP_TASK_DELIVERY_ADDRESS: `local://relay/${responderId}/${hotlineId}`,
+      BOOTSTRAP_RESPONDER_API_KEY: responderApiKey,
+      BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM: signing.publicKeyPem.replace(/\n/g, "\\n"),
+      BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM: signing.privateKeyPem.replace(/\n/g, "\\n")
     }
   });
 
-  const buyer = await startNodeHttpService({
-    name: "buyer",
+  const caller = await startNodeHttpService({
+    name: "caller",
     ...resolveHttpServiceLaunch({
-      serviceName: "buyer",
-      entryPath: BUYER_ENTRY
+      serviceName: "caller",
+      entryPath: CALLER_ENTRY
     }),
-    entryPath: BUYER_ENTRY,
-    port: buyerPort,
+    entryPath: CALLER_ENTRY,
+    port: callerPort,
     env: {
       ...sharedEnv,
-      SERVICE_NAME: "buyer-controller-http-e2e",
+      SERVICE_NAME: "caller-controller-http-e2e",
       PLATFORM_API_BASE_URL: platform.baseUrl,
       TRANSPORT_TYPE: "relay_http",
       TRANSPORT_BASE_URL: relay.baseUrl,
-      TRANSPORT_RECEIVER: "buyer-controller",
-      BUYER_CONTROLLER_POLL_INTERVAL_ACTIVE_S: "1",
-      BUYER_CONTROLLER_POLL_INTERVAL_BACKOFF_S: "1",
-      BUYER_CONTROLLER_INBOX_POLL_INTERVAL_MS: "25",
-      BUYER_CONTROLLER_EVENTS_SYNC_INTERVAL_MS: "25"
+      TRANSPORT_RECEIVER: "caller-controller",
+      CALLER_CONTROLLER_POLL_INTERVAL_ACTIVE_S: "1",
+      CALLER_CONTROLLER_POLL_INTERVAL_BACKOFF_S: "1",
+      CALLER_CONTROLLER_INBOX_POLL_INTERVAL_MS: "25",
+      CALLER_CONTROLLER_EVENTS_SYNC_INTERVAL_MS: "25"
     }
   });
 
-  const seller = await startNodeHttpService({
-    name: "seller",
+  const responder = await startNodeHttpService({
+    name: "responder",
     ...resolveHttpServiceLaunch({
-      serviceName: "seller",
-      entryPath: SELLER_ENTRY
+      serviceName: "responder",
+      entryPath: RESPONDER_ENTRY
     }),
-    entryPath: SELLER_ENTRY,
-    port: sellerPort,
+    entryPath: RESPONDER_ENTRY,
+    port: responderPort,
     env: {
       ...sharedEnv,
-      SERVICE_NAME: "seller-controller-http-e2e",
+      SERVICE_NAME: "responder-controller-http-e2e",
       PLATFORM_API_BASE_URL: platform.baseUrl,
-      SELLER_PLATFORM_API_KEY: sellerApiKey,
-      SELLER_ID: sellerId,
-      SUBAGENT_IDS: subagentId,
-      SELLER_SIGNING_PUBLIC_KEY_PEM: signing.publicKeyPem.replace(/\n/g, "\\n"),
-      SELLER_SIGNING_PRIVATE_KEY_PEM: signing.privateKeyPem.replace(/\n/g, "\\n"),
+      RESPONDER_PLATFORM_API_KEY: responderApiKey,
+      RESPONDER_ID: responderId,
+      HOTLINE_IDS: hotlineId,
+      RESPONDER_SIGNING_PUBLIC_KEY_PEM: signing.publicKeyPem.replace(/\n/g, "\\n"),
+      RESPONDER_SIGNING_PRIVATE_KEY_PEM: signing.privateKeyPem.replace(/\n/g, "\\n"),
       TRANSPORT_TYPE: "relay_http",
       TRANSPORT_BASE_URL: relay.baseUrl,
-      TRANSPORT_RECEIVER: sellerId,
-      SELLER_INBOX_POLL_INTERVAL_MS: "25",
-      SELLER_HEARTBEAT_INTERVAL_MS: "250"
+      TRANSPORT_RECEIVER: responderId,
+      RESPONDER_INBOX_POLL_INTERVAL_MS: "25",
+      RESPONDER_HEARTBEAT_INTERVAL_MS: "250"
     }
   });
 
@@ -128,17 +128,17 @@ export async function startHttpProcessSystem() {
     runtimeDir,
     relay,
     platform,
-    buyer,
-    seller,
-    sellerId,
-    subagentId,
+    caller,
+    responder,
+    responderId,
+    hotlineId,
     signing
   };
 }
 
 export async function stopHttpProcessSystem(system) {
-  await stopNodeHttpService(system?.seller);
-  await stopNodeHttpService(system?.buyer);
+  await stopNodeHttpService(system?.responder);
+  await stopNodeHttpService(system?.caller);
   await stopNodeHttpService(system?.platform);
   await stopNodeHttpService(system?.relay);
   if (system?.runtimeDir) {

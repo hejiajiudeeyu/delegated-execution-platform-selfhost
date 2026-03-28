@@ -8,7 +8,7 @@
 当前协议/运行时基线：
 
 - platform 返回 request-scoped 的 `delivery-meta`，包含 `task_delivery` 与 `result_delivery`
-- seller 结果邮件使用纯 JSON body；buyer-controller 在上游暴露前会先解析并校验
+- responder 结果邮件使用纯 JSON body；caller-controller 在上游暴露前会先解析并校验
 - 文件输出可通过签名的 `artifacts[]` 作为附件传输
 - `platform_inbox` 预留给未来演进，当前部署未实现
 
@@ -35,8 +35,8 @@ Profile 意图：
 以下 profile 仍保留用于历史本地联调与内部验证，但不是主要运维产品表面：
 
 - `deploy/ops`
-- `deploy/buyer`
-- `deploy/seller`
+- `deploy/caller`
+- `deploy/responder`
 - `deploy/all-in-one`
 
 ## 镜像分发
@@ -58,7 +58,7 @@ Profile 意图：
 
 - `platform-console` 只应访问 `platform-console-gateway`
 - `platform-console-gateway` 应使用 `PLATFORM_ADMIN_API_KEY`
-- buyer 凭据不再隐含运维权限
+- caller 凭据不再隐含运维权限
 - 用户仍可通过 admin role-grant 接口后续授予 `admin` 角色
 - 浏览器不应直接持久化运维 API key；它存储于本地加密密钥仓，并由 gateway 注入
 - `deploy/platform` 应明确传入：
@@ -105,14 +105,14 @@ relay 是平台侧栈使用的共享传输运行时。
 - relay 可通过 `RELAY_SQLITE_PATH` 使用 SQLite 持久化
 - `local://relay/<receiver>/...` 投递地址会解析到 relay receiver
 
-## Seller 签名密钥
+## Responder 签名密钥
 
-在本地演示中 seller 签名可选；在非演示部署中应视为必需。
+在本地演示中 responder 签名可选；在非演示部署中应视为必需。
 
 请同时配置：
 
-- `SELLER_SIGNING_PUBLIC_KEY_PEM`
-- `SELLER_SIGNING_PRIVATE_KEY_PEM`
+- `RESPONDER_SIGNING_PUBLIC_KEY_PEM`
+- `RESPONDER_SIGNING_PRIVATE_KEY_PEM`
 
 规则：
 
@@ -123,31 +123,31 @@ relay 是平台侧栈使用的共享传输运行时。
 示例：
 
 ```env
-SELLER_SIGNING_PUBLIC_KEY_PEM=-----BEGIN PUBLIC KEY-----
+RESPONDER_SIGNING_PUBLIC_KEY_PEM=-----BEGIN PUBLIC KEY-----
 ...
 -----END PUBLIC KEY-----
-SELLER_SIGNING_PRIVATE_KEY_PEM=-----BEGIN PRIVATE KEY-----
+RESPONDER_SIGNING_PRIVATE_KEY_PEM=-----BEGIN PRIVATE KEY-----
 ...
 -----END PRIVATE KEY-----
 ```
 
 对于 `platform` bootstrap 模式，对应变量为：
 
-- `ENABLE_BOOTSTRAP_SELLERS`
-- `BOOTSTRAP_SELLER_PUBLIC_KEY_PEM`
-- `BOOTSTRAP_SELLER_PRIVATE_KEY_PEM`
-- `BOOTSTRAP_SELLER_API_KEY`
+- `ENABLE_BOOTSTRAP_RESPONDERS`
+- `BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM`
+- `BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM`
+- `BOOTSTRAP_RESPONDER_API_KEY`
 - `BOOTSTRAP_TASK_DELIVERY_ADDRESS`
 
-当 `platform` 与 `seller` 分离部署时，请在两侧使用同一 seller 身份和同一密钥对。
-面向生产的 `deploy/platform` 建议默认禁用 bootstrap seller，除非你明确在运行预置演示环境。
+当 `platform` 与 `responder` 分离部署时，请在两侧使用同一 responder 身份和同一密钥对。
+面向生产的 `deploy/platform` 建议默认禁用 bootstrap responder，除非你明确在运行预置演示环境。
 
 ## 部署建议
 
 - `platform`：以服务端镜像发布/部署，并接入托管 PostgreSQL
 - `public-stack`：需要单一公网运维入口时优先使用
-- `buyer`：同时支持容器部署与直接嵌入；若希望标准化运维，使用 Docker
-- `seller`：终端用户机器优先 `npm run ops -- ...`，运维托管的独立服务再使用容器部署
+- `caller`：同时支持容器部署与直接嵌入；若希望标准化运维，使用 Docker
+- `responder`：终端用户机器优先 `npm run ops -- ...`，运维托管的独立服务再使用容器部署
 
 ## 发布形态
 
@@ -160,5 +160,5 @@ SELLER_SIGNING_PRIVATE_KEY_PEM=-----BEGIN PRIVATE KEY-----
 推荐发布顺序：
 
 1. 发布共享测试结果
-2. 发布 `rsp-platform`、`rsp-buyer`、`rsp-seller`
+2. 发布 `rsp-platform`、`rsp-caller`、`rsp-responder`
 3. 将部署示例更新为发布的 `IMAGE_TAG`

@@ -227,8 +227,8 @@ async function serveStaticConsole(req, res, pathname) {
 function buildFlattenedSecrets(state, runtime) {
   const secrets = readResolvedOpsSecrets(state, runtime.unlockedSecrets);
   return {
-    [OPS_SECRET_KEYS.buyer_api_key]: secrets.buyer_api_key,
-    [OPS_SECRET_KEYS.seller_platform_api_key]: secrets.seller_platform_api_key,
+    [OPS_SECRET_KEYS.caller_api_key]: secrets.caller_api_key,
+    [OPS_SECRET_KEYS.responder_platform_api_key]: secrets.responder_platform_api_key,
     [OPS_SECRET_KEYS.transport_emailengine_access_token]: secrets.transport.emailengine.access_token,
     [OPS_SECRET_KEYS.transport_gmail_client_secret]: secrets.transport.gmail.client_secret,
     [OPS_SECRET_KEYS.transport_gmail_refresh_token]: secrets.transport.gmail.refresh_token,

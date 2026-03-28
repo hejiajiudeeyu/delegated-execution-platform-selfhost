@@ -39,7 +39,7 @@ It includes:
 
 ## Notes
 
-- `deploy/public-stack` is production-oriented and defaults to `ENABLE_BOOTSTRAP_SELLERS=false`
+- `deploy/public-stack` is production-oriented and defaults to `ENABLE_BOOTSTRAP_RESPONDERS=false`
 - if you need prewired demo actors, prefer `deploy/all-in-one`
 - the gateway uses `DELEXEC_HOME=/var/lib/delexec-ops` inside the container and can read `PLATFORM_ADMIN_API_KEY` from env as a legacy secret source
 - first-time `/gateway/session/setup` calls are blocked unless the caller is local or presents `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`

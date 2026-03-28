@@ -23,11 +23,11 @@ loadEnvFiles([
 const HEARTBEAT_INTERVAL_S = 30;
 const DEGRADED_THRESHOLD_S = 90;
 const OFFLINE_THRESHOLD_S = 180;
-const REVIEW_TEST_BUYER_ID = "buyer_review_bot";
+const REVIEW_TEST_CALLER_ID = "caller_review_bot";
 const REVIEW_TEST_RECEIVER_PREFIX = "platform-review-bot";
 const DEFAULT_REQUEST_EVENT_HISTORY_LIMIT = 200;
 const DEFAULT_TELEMETRY_HISTORY_LIMIT = 5000;
-const DEFAULT_SUBAGENT_QUOTA_PER_SELLER = 25;
+const DEFAULT_HOTLINE_QUOTA_PER_RESPONDER = 25;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 
 function readNumberEnv(value, fallback) {
@@ -140,17 +140,29 @@ function readBooleanEnv(value, defaultValue = false) {
   return defaultValue;
 }
 
-function createSellerIdentity({
-  sellerId,
-  subagentId,
+function createResponderIdentity({
+  responderId,
+  hotlineId,
   templateRef,
   displayName,
   taskDeliveryAddress,
   taskTypes = [],
   capabilities = [],
   tags = [],
+  summary = null,
+  description = null,
+  recommendedFor = null,
+  notRecommendedFor = null,
+  limitations = null,
+  inputSummary = null,
+  outputSummary = null,
   inputSchema = null,
   outputSchema = null,
+  inputAttachments = null,
+  outputAttachments = null,
+  inputExamples = null,
+  outputExamples = null,
+  templateVersion = null,
   apiKey = null,
   ownerUserId = null,
   contactEmail = null,
@@ -169,32 +181,32 @@ function createSellerIdentity({
           privateKeyPem: generated.privateKey.export({ type: "pkcs8", format: "pem" }).toString()
         };
       })();
-  const sellerApiKey = apiKey || `sk_seller_${crypto.randomBytes(12).toString("hex")}`;
-  const sellerUserId = ownerUserId || randomId("user");
+  const responderApiKey = apiKey || `sk_responder_${crypto.randomBytes(12).toString("hex")}`;
+  const responderUserId = ownerUserId || randomId("user");
   const lastHeartbeatAt = nowIso();
 
   return {
-    seller: {
-      seller_id: sellerId,
-      owner_user_id: sellerUserId,
-      api_key: sellerApiKey,
-      scopes: ["seller"],
-      subagent_ids: [subagentId],
+    responder: {
+      responder_id: responderId,
+      owner_user_id: responderUserId,
+      api_key: responderApiKey,
+      scopes: ["responder"],
+      hotline_ids: [hotlineId],
       status: "enabled",
       review_status: "approved",
       reviewed_at: lastHeartbeatAt,
       reviewed_by: "system",
       review_reason: "bootstrap",
-      seller_public_key_pem: keyPair.publicKeyPem,
-      seller_public_keys_pem: [keyPair.publicKeyPem],
+      responder_public_key_pem: keyPair.publicKeyPem,
+      responder_public_keys_pem: [keyPair.publicKeyPem],
       last_heartbeat_at: lastHeartbeatAt,
       availability_status: "healthy",
-      contact_email: contactEmail || `${sellerId}@test.local`,
-      support_email: supportEmail || `support+${sellerId}@test.local`
+      contact_email: contactEmail || `${responderId}@test.local`,
+      support_email: supportEmail || `support+${responderId}@test.local`
     },
     catalogItem: {
-      seller_id: sellerId,
-      subagent_id: subagentId,
+      responder_id: responderId,
+      hotline_id: hotlineId,
       display_name: displayName,
       status: "enabled",
       review_status: "approved",
@@ -209,11 +221,29 @@ function createSellerIdentity({
       task_types: taskTypes,
       capabilities,
       tags,
+      summary,
+      description,
+      recommended_for: recommendedFor,
+      not_recommended_for: notRecommendedFor,
+      limitations,
+      input_summary: inputSummary,
+      output_summary: outputSummary,
       input_schema: inputSchema,
       output_schema: outputSchema,
-      seller_public_key_pem: keyPair.publicKeyPem,
-      seller_public_keys_pem: [keyPair.publicKeyPem],
+      input_attachments: inputAttachments,
+      output_attachments: outputAttachments,
+      responder_public_key_pem: keyPair.publicKeyPem,
+      responder_public_keys_pem: [keyPair.publicKeyPem],
       task_delivery_address: taskDeliveryAddress
+    },
+    templateOptions: {
+      inputSchema,
+      outputSchema,
+      inputAttachments,
+      outputAttachments,
+      inputExamples,
+      outputExamples,
+      templateVersion
     },
     signing: {
       publicKeyPem: keyPair.publicKeyPem,
@@ -223,7 +253,7 @@ function createSellerIdentity({
 }
 
 function createTemplateBundle(templateRef, options = {}) {
-  return {
+  const bundle = {
     template_ref: templateRef,
     input_schema: options.inputSchema || {
       type: "object",
@@ -241,6 +271,22 @@ function createTemplateBundle(templateRef, options = {}) {
       }
     }
   };
+  if (options.inputAttachments !== undefined) {
+    bundle.input_attachments = options.inputAttachments;
+  }
+  if (options.outputAttachments !== undefined) {
+    bundle.output_attachments = options.outputAttachments;
+  }
+  if (options.inputExamples !== undefined) {
+    bundle.input_examples = options.inputExamples;
+  }
+  if (options.outputExamples !== undefined) {
+    bundle.output_examples = options.outputExamples;
+  }
+  if (options.templateVersion !== undefined) {
+    bundle.template_version = options.templateVersion;
+  }
+  return bundle;
 }
 
 function sanitizeCatalogItem(item) {
@@ -283,7 +329,7 @@ function buildPlatformLimits() {
   return {
     requestEventHistory: readNumberEnv(process.env.PLATFORM_REQUEST_EVENT_HISTORY_LIMIT, DEFAULT_REQUEST_EVENT_HISTORY_LIMIT),
     telemetryHistory: readNumberEnv(process.env.PLATFORM_TELEMETRY_HISTORY_LIMIT, DEFAULT_TELEMETRY_HISTORY_LIMIT),
-    subagentsPerSeller: readNumberEnv(process.env.PLATFORM_SUBAGENT_QUOTA_PER_SELLER, DEFAULT_SUBAGENT_QUOTA_PER_SELLER)
+    hotlinesPerResponder: readNumberEnv(process.env.PLATFORM_HOTLINE_QUOTA_PER_RESPONDER, DEFAULT_HOTLINE_QUOTA_PER_RESPONDER)
   };
 }
 
@@ -310,7 +356,7 @@ function buildRateLimitConfig() {
   return {
     windowMs: readNumberEnv(process.env.PUBLIC_RATE_LIMIT_WINDOW_MS, DEFAULT_RATE_LIMIT_WINDOW_MS),
     registerUserMax: readNumberEnv(process.env.PUBLIC_RATE_LIMIT_REGISTER_USER_MAX, 1000),
-    registerSellerMax: readNumberEnv(process.env.PUBLIC_RATE_LIMIT_REGISTER_SELLER_MAX, 1000),
+    registerResponderMax: readNumberEnv(process.env.PUBLIC_RATE_LIMIT_REGISTER_RESPONDER_MAX, 1000),
     catalogSubmitMax: readNumberEnv(process.env.PUBLIC_RATE_LIMIT_CATALOG_SUBMIT_MAX, 1000)
   };
 }
@@ -347,7 +393,7 @@ function createRateLimiter(config = buildRateLimitConfig()) {
 }
 
 function requestIdentityForRateLimit(req, auth = null) {
-  return `${getClientAddress(req)}:${auth?.user_id || auth?.seller_id || auth?.admin_id || "anonymous"}`;
+  return `${getClientAddress(req)}:${auth?.user_id || auth?.responder_id || auth?.admin_id || "anonymous"}`;
 }
 
 function buildReviewTransportConfig() {
@@ -377,11 +423,11 @@ function buildReviewResultAddress(requestId) {
   return `local://relay/${buildReviewResultReceiver(requestId)}/${requestId}`;
 }
 
-function isSellerRoutable(seller) {
-  return seller?.review_status === "approved" && seller?.status === "enabled";
+function isResponderRoutable(responder) {
+  return responder?.review_status === "approved" && responder?.status === "enabled";
 }
 
-function isSubagentRoutable(item) {
+function isHotlineRoutable(item) {
   return item?.review_status === "approved" && item?.status === "enabled";
 }
 
@@ -389,8 +435,8 @@ function resolveCatalogVisibility(state, item) {
   if (!item) {
     return "hidden";
   }
-  const seller = state.sellers.get(item.seller_id);
-  return isSellerRoutable(seller) && isSubagentRoutable(item) ? "public" : "hidden";
+  const responder = state.responders.get(item.responder_id);
+  return isResponderRoutable(responder) && isHotlineRoutable(item) ? "public" : "hidden";
 }
 
 function isOperatorAuth(auth, state) {
@@ -400,22 +446,22 @@ function isOperatorAuth(auth, state) {
   if (auth.type === "admin") {
     return true;
   }
-  if (auth.type !== "buyer") {
+  if (auth.type !== "caller") {
     return false;
   }
   const user = state.users.get(auth.user_id);
   return (user?.roles || []).includes("admin");
 }
 
-function canManageSeller(auth, seller) {
-  if (!auth || !seller) {
+function canManageResponder(auth, responder) {
+  if (!auth || !responder) {
     return false;
   }
-  if (auth.type === "buyer") {
-    return seller.owner_user_id === auth.user_id;
+  if (auth.type === "caller") {
+    return responder.owner_user_id === auth.user_id;
   }
-  if (auth.type === "seller") {
-    return auth.seller_id === seller.seller_id;
+  if (auth.type === "responder") {
+    return auth.responder_id === responder.responder_id;
   }
   return false;
 }
@@ -430,8 +476,8 @@ function canViewCatalogItemDetail(state, auth, item) {
   if (isOperatorAuth(auth, state)) {
     return true;
   }
-  const seller = state.sellers.get(item.seller_id);
-  return canManageSeller(auth, seller) || (auth?.type === "seller" && auth.subagent_ids?.includes(item.subagent_id));
+  const responder = state.responders.get(item.responder_id);
+  return canManageResponder(auth, responder) || (auth?.type === "responder" && auth.hotline_ids?.includes(item.hotline_id));
 }
 
 function sanitizeCatalogItemForResponse(state, item) {
@@ -447,8 +493,8 @@ function summarizeReviewTest(reviewTest) {
   }
   return {
     request_id: reviewTest.request_id,
-    seller_id: reviewTest.seller_id,
-    subagent_id: reviewTest.subagent_id,
+    responder_id: reviewTest.responder_id,
+    hotline_id: reviewTest.hotline_id,
     status: reviewTest.status,
     verdict: reviewTest.verdict,
     failure_code: reviewTest.failure_code || null,
@@ -458,19 +504,19 @@ function summarizeReviewTest(reviewTest) {
   };
 }
 
-function findLatestReviewTest(state, subagentId) {
+function findLatestReviewTest(state, hotlineId) {
   const matches = Array.from(state.reviewTests.values())
-    .filter((item) => item.subagent_id === subagentId)
+    .filter((item) => item.hotline_id === hotlineId)
     .sort((left, right) => String(right.started_at || "").localeCompare(String(left.started_at || "")));
   return matches[0] || null;
 }
 
 function buildCatalogDetail(state, item) {
-  const submission = state.submissions.get(item.subagent_id) || null;
+  const submission = state.submissions.get(item.hotline_id) || null;
   return {
     ...item,
     catalog_visibility: resolveCatalogVisibility(state, item),
-    latest_review_test: summarizeReviewTest(findLatestReviewTest(state, item.subagent_id)),
+    latest_review_test: summarizeReviewTest(findLatestReviewTest(state, item.hotline_id)),
     submission:
       submission && {
         submission_version: submission.submission_version,
@@ -486,7 +532,154 @@ function buildCatalogAdminSummary(state, item) {
   return {
     ...item,
     catalog_visibility: resolveCatalogVisibility(state, item),
-    latest_review_test: summarizeReviewTest(findLatestReviewTest(state, item.subagent_id))
+    latest_review_test: summarizeReviewTest(findLatestReviewTest(state, item.hotline_id))
+  };
+}
+
+function slugifyMarketplaceSegment(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "item";
+}
+
+function buildMarketplaceTemplateSummary(template) {
+  if (!template) {
+    return null;
+  }
+  const inputSchema = template.input_schema || null;
+  const outputSchema = template.output_schema || null;
+  return {
+    template_ref: template.template_ref,
+    input_required: Array.isArray(inputSchema?.required) ? inputSchema.required : [],
+    input_properties: inputSchema?.properties ? Object.keys(inputSchema.properties) : [],
+    output_properties: outputSchema?.properties ? Object.keys(outputSchema.properties) : []
+  };
+}
+
+function buildMarketplaceTrustBadges(state, item, responder) {
+  const badges = [];
+  if (resolveCatalogVisibility(state, item) === "public") {
+    badges.push("public");
+  }
+  if (responder?.review_status === "approved") {
+    badges.push("responder_reviewed");
+  }
+  if (item?.review_status === "approved") {
+    badges.push("hotline_reviewed");
+  }
+  if (resolveCatalogAvailability(item) === "healthy") {
+    badges.push("healthy");
+  }
+  return badges;
+}
+
+function buildMarketplaceHotlineSummary(state, item) {
+  const responder = state.responders.get(item.responder_id) || null;
+  const template = state.templates.get(item.template_ref) || null;
+  const responderSlug = slugifyMarketplaceSegment(responder?.display_name || responder?.responder_id || item.responder_id);
+  const hotlineSlug = slugifyMarketplaceSegment(item.display_name || item.hotline_id);
+  return {
+    hotline_id: item.hotline_id,
+    responder_id: item.responder_id,
+    responder_slug: responderSlug,
+    hotline_slug: hotlineSlug,
+    display_name: item.display_name || item.hotline_id,
+    summary: item.summary || item.description || `${item.display_name || item.hotline_id} handles ${(item.task_types || []).join(", ") || "remote tasks"}.`,
+    responder_display_name: responder?.display_name || responder?.responder_id || item.responder_id,
+    task_types: item.task_types || [],
+    capabilities: item.capabilities || [],
+    tags: item.tags || [],
+    status: item.status || "disabled",
+    review_status: item.review_status || "pending",
+    availability_status: resolveCatalogAvailability(item),
+    catalog_visibility: resolveCatalogVisibility(state, item),
+    template_summary: buildMarketplaceTemplateSummary(template),
+    latest_review_test: summarizeReviewTest(findLatestReviewTest(state, item.hotline_id)),
+    support_email: responder?.support_email || null,
+    trust_badges: buildMarketplaceTrustBadges(state, item, responder),
+    updated_at: item.reviewed_at || item.submitted_at || item.last_heartbeat_at || null
+  };
+}
+
+function buildMarketplaceHotlineDetail(state, item) {
+  const responder = state.responders.get(item.responder_id) || null;
+  const template = state.templates.get(item.template_ref) || null;
+  const relatedHotlines = Array.from(state.catalog.values())
+    .filter((entry) => entry.responder_id === item.responder_id && entry.hotline_id !== item.hotline_id)
+    .filter((entry) => resolveCatalogVisibility(state, entry) === "public")
+    .slice(0, 3)
+    .map((entry) => buildMarketplaceHotlineSummary(state, entry));
+  return {
+    ...buildMarketplaceHotlineSummary(state, item),
+    description: item.description || null,
+    recommended_for: item.recommended_for || null,
+    not_recommended_for: item.not_recommended_for || null,
+    limitations: item.limitations || null,
+    input_summary: item.input_summary || null,
+    output_summary: item.output_summary || null,
+    responder_profile: responder
+      ? {
+          responder_id: responder.responder_id,
+          display_name: responder.display_name || responder.responder_id,
+          support_email: responder.support_email || null,
+          availability_status: responder.availability_status || null,
+          last_heartbeat_at: responder.last_heartbeat_at || null
+        }
+      : null,
+    related_hotlines: relatedHotlines,
+    input_schema: item.input_schema || template?.input_schema || null,
+    output_schema: item.output_schema || template?.output_schema || null,
+    input_attachments: item.input_attachments || template?.input_attachments || null,
+    output_attachments: item.output_attachments || template?.output_attachments || null,
+    template_ref: item.template_ref || null
+  };
+}
+
+function buildMarketplaceResponderProfile(state, responder) {
+  const hotlines = Array.from(state.catalog.values())
+    .filter((item) => item.responder_id === responder.responder_id)
+    .filter((item) => resolveCatalogVisibility(state, item) === "public")
+    .map((item) => buildMarketplaceHotlineSummary(state, item));
+
+  return {
+    responder_id: responder.responder_id,
+    responder_slug: slugifyMarketplaceSegment(responder.display_name || responder.responder_id),
+    display_name: responder.display_name || responder.responder_id,
+    summary: responder.summary || "",
+    availability_status: responder.availability_status || "unknown",
+    review_status: responder.review_status || "pending",
+    support_email: responder.support_email || null,
+    last_heartbeat_at: responder.last_heartbeat_at || null,
+    hotline_count: hotlines.length,
+    task_types: Array.from(new Set(hotlines.flatMap((item) => item.task_types || []))),
+    capabilities: Array.from(new Set(hotlines.flatMap((item) => item.capabilities || []))),
+    trust_badges: Array.from(new Set(hotlines.flatMap((item) => item.trust_badges || []))),
+    hotlines
+  };
+}
+
+function buildMarketplaceMeta(state) {
+  const hotlines = Array.from(state.catalog.values())
+    .filter((item) => resolveCatalogVisibility(state, item) === "public")
+    .map((item) => buildMarketplaceHotlineSummary(state, item));
+  const countValues = (values) =>
+    values.reduce((counts, value) => {
+      if (!value) {
+        return counts;
+      }
+      counts[value] = (counts[value] || 0) + 1;
+      return counts;
+    }, {});
+  return {
+    hotline_count: hotlines.length,
+    responder_count: new Set(hotlines.map((item) => item.responder_id)).size,
+    task_types: countValues(hotlines.flatMap((item) => item.task_types || [])),
+    capabilities: countValues(hotlines.flatMap((item) => item.capabilities || [])),
+    tags: countValues(hotlines.flatMap((item) => item.tags || [])),
+    updated_at: nowIso()
   };
 }
 
@@ -503,7 +696,7 @@ function normalizeStringList(value) {
   return [];
 }
 
-function registerBuyerUser(state, body) {
+function registerCallerUser(state, body) {
   const contactEmail = body.contact_email || body.email;
   if (!contactEmail) {
     return { error: { code: "CONTRACT_INVALID_REGISTER_BODY", message: "contact_email is required", retryable: false }, statusCode: 400 };
@@ -512,16 +705,16 @@ function registerBuyerUser(state, body) {
   const user = {
     user_id: randomId("user"),
     contact_email: contactEmail,
-    api_key: `sk_buyer_${crypto.randomBytes(12).toString("hex")}`,
-    roles: ["buyer"],
+    api_key: `sk_caller_${crypto.randomBytes(12).toString("hex")}`,
+    roles: ["caller"],
     created_at: nowIso()
   };
 
   state.users.set(user.user_id, user);
   state.apiKeys.set(user.api_key, {
-    type: "buyer",
+    type: "caller",
     user_id: user.user_id,
-    scopes: ["buyer"]
+    scopes: ["caller"]
   });
 
   return user;
@@ -536,8 +729,8 @@ function addUserRole(state, userId, role) {
   roles.add(role);
   user.roles = Array.from(roles);
   for (const apiKeyRecord of state.apiKeys.values()) {
-    if (apiKeyRecord.type === "buyer" && apiKeyRecord.user_id === userId) {
-      const scopes = new Set(apiKeyRecord.scopes || ["buyer"]);
+    if (apiKeyRecord.type === "caller" && apiKeyRecord.user_id === userId) {
+      const scopes = new Set(apiKeyRecord.scopes || ["caller"]);
       scopes.add(role);
       apiKeyRecord.scopes = Array.from(scopes);
     }
@@ -551,22 +744,22 @@ function revokeApiKey(state, apiKey) {
     return null;
   }
   state.apiKeys.delete(apiKey);
-  if (record.type === "buyer") {
+  if (record.type === "caller") {
     const user = state.users.get(record.user_id);
     if (user?.api_key === apiKey) {
       user.api_key = null;
     }
   }
-  if (record.type === "seller") {
-    const seller = state.sellers.get(record.seller_id);
-    if (seller?.api_key === apiKey) {
-      seller.api_key = null;
+  if (record.type === "responder") {
+    const responder = state.responders.get(record.responder_id);
+    if (responder?.api_key === apiKey) {
+      responder.api_key = null;
     }
   }
   return record;
 }
 
-function rotateBuyerApiKey(state, userId) {
+function rotateCallerApiKey(state, userId) {
   const user = state.users.get(userId);
   if (!user) {
     return null;
@@ -574,12 +767,12 @@ function rotateBuyerApiKey(state, userId) {
   if (user.api_key) {
     revokeApiKey(state, user.api_key);
   }
-  const apiKey = `sk_buyer_${crypto.randomBytes(12).toString("hex")}`;
+  const apiKey = `sk_caller_${crypto.randomBytes(12).toString("hex")}`;
   user.api_key = apiKey;
   state.apiKeys.set(apiKey, {
-    type: "buyer",
+    type: "caller",
     user_id: user.user_id,
-    scopes: ["buyer", ...(user.roles || []).filter((role) => role !== "buyer")]
+    scopes: ["caller", ...(user.roles || []).filter((role) => role !== "caller")]
   });
   return {
     user_id: user.user_id,
@@ -588,41 +781,41 @@ function rotateBuyerApiKey(state, userId) {
   };
 }
 
-function rotateSellerApiKey(state, sellerId) {
-  const seller = state.sellers.get(sellerId);
-  if (!seller) {
+function rotateResponderApiKey(state, responderId) {
+  const responder = state.responders.get(responderId);
+  if (!responder) {
     return null;
   }
-  if (seller.api_key) {
-    revokeApiKey(state, seller.api_key);
+  if (responder.api_key) {
+    revokeApiKey(state, responder.api_key);
   }
-  const apiKey = `sk_seller_${crypto.randomBytes(12).toString("hex")}`;
-  seller.api_key = apiKey;
+  const apiKey = `sk_responder_${crypto.randomBytes(12).toString("hex")}`;
+  responder.api_key = apiKey;
   state.apiKeys.set(apiKey, {
-    type: "seller",
-    seller_id: seller.seller_id,
-    owner_user_id: seller.owner_user_id,
-    scopes: seller.scopes,
-    subagent_ids: seller.subagent_ids
+    type: "responder",
+    responder_id: responder.responder_id,
+    owner_user_id: responder.owner_user_id,
+    scopes: responder.scopes,
+    hotline_ids: responder.hotline_ids
   });
   return {
-    seller_id: seller.seller_id,
+    responder_id: responder.responder_id,
     api_key: apiKey,
-    subagent_ids: seller.subagent_ids
+    hotline_ids: responder.hotline_ids
   };
 }
 
-function rotateSellerSigningKey(state, sellerId, body = {}) {
-  const seller = state.sellers.get(sellerId);
-  if (!seller) {
+function rotateResponderSigningKey(state, responderId, body = {}) {
+  const responder = state.responders.get(responderId);
+  if (!responder) {
     return null;
   }
-  const nextPublicKeyPem = body.seller_public_key_pem || body.next_public_key_pem;
+  const nextPublicKeyPem = body.responder_public_key_pem || body.next_public_key_pem;
   if (!nextPublicKeyPem) {
     return {
       error: {
         code: "CONTRACT_INVALID_SIGNING_KEY_ROTATION",
-        message: "seller_public_key_pem is required",
+        message: "responder_public_key_pem is required",
         retryable: false
       },
       statusCode: 400
@@ -630,27 +823,27 @@ function rotateSellerSigningKey(state, sellerId, body = {}) {
   }
   const previousKeys = Array.isArray(body.previous_public_keys_pem)
     ? body.previous_public_keys_pem.filter(Boolean)
-    : seller.seller_public_key_pem
-      ? [seller.seller_public_key_pem]
+    : responder.responder_public_key_pem
+      ? [responder.responder_public_key_pem]
       : [];
   const allKeys = Array.from(new Set([nextPublicKeyPem, ...previousKeys]));
-  seller.seller_public_key_pem = nextPublicKeyPem;
-  seller.seller_public_keys_pem = allKeys;
-  seller.signing_key_rotation_window_until = body.rotation_window_until || null;
+  responder.responder_public_key_pem = nextPublicKeyPem;
+  responder.responder_public_keys_pem = allKeys;
+  responder.signing_key_rotation_window_until = body.rotation_window_until || null;
 
   for (const item of state.catalog.values()) {
-    if (item.seller_id !== sellerId) {
+    if (item.responder_id !== responderId) {
       continue;
     }
-    item.seller_public_key_pem = nextPublicKeyPem;
-    item.seller_public_keys_pem = allKeys;
+    item.responder_public_key_pem = nextPublicKeyPem;
+    item.responder_public_keys_pem = allKeys;
     item.signing_key_rotation_window_until = body.rotation_window_until || null;
   }
 
   return {
-    seller_id: sellerId,
-    seller_public_key_pem: nextPublicKeyPem,
-    seller_public_keys_pem: allKeys,
+    responder_id: responderId,
+    responder_public_key_pem: nextPublicKeyPem,
+    responder_public_keys_pem: allKeys,
     rotation_window_until: body.rotation_window_until || null
   };
 }
@@ -669,47 +862,232 @@ export function createPlatformState(options = {}) {
   const bootstrapEnabled =
     options.bootstrapEnabled !== undefined
       ? Boolean(options.bootstrapEnabled)
-      : readBooleanEnv(process.env.ENABLE_BOOTSTRAP_SELLERS, true);
-  const bootstrapSellerSigning =
-    process.env.BOOTSTRAP_SELLER_PUBLIC_KEY_PEM && process.env.BOOTSTRAP_SELLER_PRIVATE_KEY_PEM
+      : readBooleanEnv(process.env.ENABLE_BOOTSTRAP_RESPONDERS, true);
+  const bootstrapResponderSigning =
+    process.env.BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM && process.env.BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM
       ? {
-          publicKeyPem: decodePemEnv(process.env.BOOTSTRAP_SELLER_PUBLIC_KEY_PEM),
-          privateKeyPem: decodePemEnv(process.env.BOOTSTRAP_SELLER_PRIVATE_KEY_PEM)
+          publicKeyPem: decodePemEnv(process.env.BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM),
+          privateKeyPem: decodePemEnv(process.env.BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM)
         }
       : null;
 
-  const bootstrapSellers = bootstrapEnabled
+  const bootstrapResponders = bootstrapEnabled
     ? [
-        createSellerIdentity({
-          sellerId: process.env.BOOTSTRAP_SELLER_ID || "seller_foxlab",
-          subagentId: process.env.BOOTSTRAP_SUBAGENT_ID || "foxlab.text.classifier.v1",
-          templateRef: "foxlab/text-classifier@v1",
-          displayName: "Foxlab Text Classifier",
+        createResponderIdentity({
+          responderId: process.env.BOOTSTRAP_RESPONDER_ID || "responder_starlight",
+          hotlineId: process.env.BOOTSTRAP_HOTLINE_ID || "starlight.creative.studio.v1",
+          templateRef: "docs/templates/hotlines/starlight.creative.studio.v1/",
+          displayName: "Starlight AI 创意工坊",
           taskDeliveryAddress:
-            process.env.BOOTSTRAP_TASK_DELIVERY_ADDRESS || "local://relay/seller_foxlab/foxlab.text.classifier.v1",
-          taskTypes: ["text_classify"],
-          capabilities: ["text.classify", "document.classify"],
-          tags: ["nlp", "classification"],
-          apiKey: process.env.BOOTSTRAP_SELLER_API_KEY || null,
-          ownerUserId: process.env.BOOTSTRAP_SELLER_OWNER_USER_ID || null,
-          signing: bootstrapSellerSigning
+            process.env.BOOTSTRAP_TASK_DELIVERY_ADDRESS || "local://relay/responder_starlight/starlight.creative.studio.v1",
+          taskTypes: ["creative_generation", "image_synthesis"],
+          capabilities: ["image.generate", "style.transfer", "multi_model.orchestrate"],
+          tags: ["creative", "image", "ai-generation", "design"],
+          summary: "提交创作提示词，AI 后端多模型编排管线生成创意图像。提示词是公开的，生成智能是私有的。",
+          description: "Starlight AI 创意工坊展示了 Hotline 的核心价值：Caller 只需提供文字描述，Responder 后端的多阶段模型编排、专有 Prompt 增强模板、风格迁移算法和微调模型全部私有运行。参考图仅作软风格信号，不作直接条件输入。这是\"对外发布接口，不是大脑\"的典型实现。",
+          recommendedFor: ["产品摄影和电商视觉素材生成", "营销 Banner 和社交媒体内容创作", "概念图和创意探索", "品牌一致性视觉资产批量生产", "视觉营销方案的快速原型制作"],
+          notRecommendedFor: ["需要实时修改循环的交互式编辑工作流", "需要严格法律准确性的图示（医疗、法律、金融图表）", "无专项协议情况下的超高分辨率印刷生产（> 4K）"],
+          limitations: ["最大提示词长度：2,000 字符", "每次调用最多生成 4 个变体", "参考图仅作为软风格信号，不作为直接条件输入", "pipeline_stage_count 不透露具体阶段详情"],
+          inputSummary: "提供创作提示词（必需，最大 2,000 字符），可选指定风格预设、输出格式、生成数量和宽高比，可附带参考图",
+          outputSummary: "返回 generated_items 数组（含附件角色引用和尺寸），所有图像文件通过输出附件返回，至少保证一个资产",
+          inputSchema: {
+            type: "object",
+            required: ["prompt"],
+            properties: {
+              prompt: { type: "string", description: "创作提示词，自然语言描述期望的创意产出", minLength: 1, maxLength: 2000 },
+              style_preset: { type: "string", enum: ["cinematic", "illustration", "product_clean", "editorial", "abstract", "anime", "photorealistic"], default: "photorealistic", description: "风格预设" },
+              output_format: { type: "string", enum: ["jpeg", "png", "webp"], default: "jpeg", description: "输出格式" },
+              quantity: { type: "integer", minimum: 1, maximum: 4, default: 1, description: "生成变体数量（1–4）" },
+              aspect_ratio: { type: "string", enum: ["1:1", "4:3", "16:9", "9:16", "3:4"], default: "1:1", description: "输出宽高比" },
+              reference_image_hint: { type: "string", const: "reference_image", description: "参考图附件角色名（可选）" }
+            },
+            additionalProperties: false
+          },
+          outputSchema: {
+            type: "object",
+            required: ["generated_items", "metadata"],
+            properties: {
+              generated_items: { type: "array", minItems: 1, items: { type: "object", required: ["attachment_role", "format", "width", "height"], properties: { attachment_role: { type: "string" }, format: { type: "string" }, width: { type: "integer" }, height: { type: "integer" }, seed: { type: "integer" } } } },
+              metadata: { type: "object", required: ["generation_time_ms"], properties: { generation_time_ms: { type: "integer" }, pipeline_stage_count: { type: "integer" }, model_version: { type: "string" }, style_applied: { type: "string" } } }
+            },
+            additionalProperties: false
+          },
+          inputAttachments: {
+            accepts_files: true,
+            max_files: 1,
+            max_total_size_bytes: 10485760,
+            accepted_mime_types: ["image/jpeg", "image/png", "image/webp"],
+            file_roles: [{ role: "reference_image", required: false, description: "可选参考图，用于风格或构图引导（最大 10MB）", accepted_types: ["image/jpeg", "image/png", "image/webp"], max_size_bytes: 10485760 }]
+          },
+          outputAttachments: {
+            includes_files: true,
+            max_files: 4,
+            max_total_size_bytes: 52428800,
+            possible_mime_types: ["image/jpeg", "image/png", "image/webp"],
+            file_roles: [
+              { role: "generated_asset_1", guaranteed: true, description: "第一张生成图（quantity >= 1 时必返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] },
+              { role: "generated_asset_2", guaranteed: false, description: "第二张生成图（quantity >= 2 时返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] },
+              { role: "generated_asset_3", guaranteed: false, description: "第三张生成图（quantity >= 3 时返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] },
+              { role: "generated_asset_4", guaranteed: false, description: "第四张生成图（quantity = 4 时返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] }
+            ]
+          },
+          inputExamples: [
+            {
+              title: "产品宣传图生成",
+              description: "生成一款高端护肤品的产品宣传图，无参考图",
+              params: { prompt: "一款高端护肤精华的产品宣传图，背景简洁纯白，柔和的影棚光线，高端编辑风格", style_preset: "product_clean", output_format: "jpeg", quantity: 2, aspect_ratio: "1:1" },
+              attachments: []
+            }
+          ],
+          outputExamples: [
+            {
+              title: "双变体生成结果",
+              result: { generated_items: [{ attachment_role: "generated_asset_1", format: "jpeg", width: 1024, height: 1024, seed: 8472910 }, { attachment_role: "generated_asset_2", format: "jpeg", width: 1024, height: 1024, seed: 8472911 }], metadata: { generation_time_ms: 14200, pipeline_stage_count: 5, model_version: "starlight-v3.2", style_applied: "product_clean" } },
+              attachments: [{ role: "generated_asset_1", filename: "render_001.jpg", mime_type: "image/jpeg" }, { role: "generated_asset_2", filename: "render_002.jpg", mime_type: "image/jpeg" }]
+            }
+          ],
+          templateVersion: "1.0.0",
+          apiKey: process.env.BOOTSTRAP_RESPONDER_API_KEY || null,
+          ownerUserId: process.env.BOOTSTRAP_RESPONDER_OWNER_USER_ID || null,
+          signing: bootstrapResponderSigning
         }),
-        createSellerIdentity({
-          sellerId: "seller_northwind",
-          subagentId: "northwind.copywriter.v1",
-          templateRef: "northwind/copywriter@v1",
-          displayName: "Northwind Copywriter",
-          taskDeliveryAddress: "local://relay/seller_northwind/northwind.copywriter.v1",
-          taskTypes: ["copywrite"],
-          capabilities: ["marketing.copywrite", "text.generate"],
-          tags: ["marketing", "copywriting"]
+        createResponderIdentity({
+          responderId: "responder_atlas",
+          hotlineId: "atlas.knowledge.qa.v1",
+          templateRef: "docs/templates/hotlines/atlas.knowledge.qa.v1/",
+          displayName: "Atlas 企业知识问答",
+          taskDeliveryAddress: "local://relay/responder_atlas/atlas.knowledge.qa.v1",
+          taskTypes: ["knowledge_qa", "rag_retrieval"],
+          capabilities: ["knowledge.retrieve", "qa.grounded", "multilingual"],
+          tags: ["enterprise", "rag", "knowledge-base", "qa"],
+          summary: "提问，从企业私有知识库获得有据可查的回答与引用来源。问题是公开的，知识是私有的。",
+          description: "Atlas 企业知识问答展示了 Hotline 的第二种典型模式：Caller 只发送一个问题字符串，Responder 的私有知识语料库、检索策略、领域微调嵌入模型和重排序算法全部私有运行，知识本身永远不会向外流出。适合企业将内部 HR、政策、合规、技术文档等知识服务化。",
+          recommendedFor: ["企业内部 HR、政策、合规问答", "客户支持知识库检索", "工程团队技术文档助手", "新员工入职知识查询", "专有文档集合的研究综合"],
+          notRecommendedFor: ["需要实时外部数据的问题（股价、实时新闻）", "需要严格逐字法律引用的任务", "开放域通用知识问答（更适合通用 LLM）"],
+          limitations: ["最大问题长度：1,000 字符", "retrieval_coverage: 'none' 表示知识库无相关覆盖", "置信度低于 0.6 时请谨慎对待答案", "sources[].excerpt 可能因策略限制被省略"],
+          inputSummary: "提供自然语言问题（必需，最大 1,000 字符），可选指定响应语言、最大引用数量和检索焦点提示，无文件附件",
+          outputSummary: "返回 answer（有据可查的自然语言回答）、confidence（0.0–1.0）、sources（引用列表）、可选 follow_up_questions 和 retrieval_coverage，无文件附件",
+          inputSchema: {
+            type: "object",
+            required: ["question"],
+            properties: {
+              question: { type: "string", description: "自然语言问题", minLength: 1, maxLength: 1000 },
+              language: { type: "string", pattern: "^[a-z]{2}(-[A-Z]{2})?$", default: "zh-CN", description: "响应语言 BCP-47 标签" },
+              max_sources: { type: "integer", minimum: 1, maximum: 10, default: 3, description: "最大引用数量（1–10，默认 3）" },
+              context_hint: { type: "string", maxLength: 200, description: "可选，领域或主题提示（如 'HR policy'、'Q3 financial report'）" }
+            },
+            additionalProperties: false
+          },
+          outputSchema: {
+            type: "object",
+            required: ["answer", "confidence"],
+            properties: {
+              answer: { type: "string", description: "基于私有知识库的回答" },
+              confidence: { type: "number", minimum: 0, maximum: 1, description: "置信度（0.0–1.0）" },
+              sources: { type: "array", items: { type: "object", required: ["title", "relevance_score"], properties: { title: { type: "string" }, excerpt: { type: "string" }, relevance_score: { type: "number", minimum: 0, maximum: 1 } } } },
+              follow_up_questions: { type: "array", items: { type: "string" }, maxItems: 3 },
+              retrieval_coverage: { type: "string", enum: ["full", "partial", "none"] }
+            },
+            additionalProperties: false
+          },
+          inputAttachments: { accepts_files: false },
+          outputAttachments: { includes_files: false },
+          inputExamples: [
+            {
+              title: "差旅报销政策查询",
+              description: "查询公司差旅报销标准",
+              params: { question: "我们公司对员工出差报销的标准是什么？国内二线城市的住宿上限是多少？", language: "zh-CN", max_sources: 3, context_hint: "HR policy" },
+              attachments: []
+            }
+          ],
+          outputExamples: [
+            {
+              title: "有据可查的回答",
+              result: { answer: "根据公司差旅管理规定（2024年修订版），国内二线城市的住宿报销上限为每晚 450 元人民币（税后）。", confidence: 0.92, sources: [{ title: "差旅管理规定（2024年修订版）- 第3章 住宿标准", excerpt: "二线城市住宿费用报销上限为每晚人民币450元（税后），超标须提前审批。", relevance_score: 0.97 }], follow_up_questions: ["差旅报销流程需要提交哪些材料？", "超标住宿的审批流程是什么？"], retrieval_coverage: "full" },
+              attachments: []
+            }
+          ],
+          templateVersion: "1.0.0"
+        }),
+        createResponderIdentity({
+          responderId: "responder_pixel",
+          hotlineId: "pixel.product.renderer.v1",
+          templateRef: "docs/templates/hotlines/pixel.product.renderer.v1/",
+          displayName: "Pixel 产品图渲染器",
+          taskDeliveryAddress: "local://relay/responder_pixel/pixel.product.renderer.v1",
+          taskTypes: ["product_render", "image_compositing"],
+          capabilities: ["image.render", "background.synthesis", "product.retouch"],
+          tags: ["ecommerce", "product-photo", "rendering", "image-ai"],
+          summary: "上传产品照片，私有微调渲染模型生成高质量电商视觉素材。产品是公开的，渲染智能是私有的。",
+          description: "Pixel 产品图渲染器展示了 Hotline 文件输入+图像输出模式：Caller 上传产品照片和描述，Responder 的专有微调渲染模型、背景合成算法、多道合成管线和后处理预设全部私有运行。源照片处理后不被存储。适合电商和品牌客户批量生产高质量产品视觉素材。",
+          recommendedFor: ["电商平台产品详情页视觉素材", "产品发布营销资产批量生产", "多角度产品渲染用于目录生成", "广告投放的快速视觉 A/B 测试", "经销商白牌产品摄影替换"],
+          notRecommendedFor: ["需要物理触感细节精确还原的产品（如面料质地认证）", "严格的工程制图或技术线图", "视频或动态产品渲染（仅生成静态图像）"],
+          limitations: ["源照片最大大小：15MB", "支持输入格式：JPEG、PNG、WebP", "每次调用最多生成 4 张渲染图", "background_removal_applied: false 表示背景复杂，建议预先裁剪"],
+          inputSummary: "提供产品描述（必需，最大 1,500 字符）和 product_photo 附件（必需，最大 15MB），可选指定背景风格、角度、分辨率和数量",
+          outputSummary: "返回 renders 数组（含附件角色引用和风格信息），所有图像通过输出附件返回，至少返回一张渲染图",
+          inputSchema: {
+            type: "object",
+            required: ["product_description"],
+            properties: {
+              product_description: { type: "string", description: "产品描述（材质、颜色、关键特征、渲染需求等）", minLength: 10, maxLength: 1500 },
+              background_style: { type: "string", enum: ["pure_white", "gradient_soft", "lifestyle_studio", "outdoor_natural", "dark_premium", "transparent"], default: "pure_white", description: "背景风格" },
+              angle: { type: "string", enum: ["front", "three_quarter", "top_down", "side", "hero_45"], default: "three_quarter", description: "主要拍摄角度" },
+              resolution: { type: "string", enum: ["1024x1024", "1500x1500", "2048x2048", "1080x1350"], default: "1500x1500", description: "输出分辨率预设" },
+              quantity: { type: "integer", minimum: 1, maximum: 4, default: 1, description: "生成渲染图数量（1–4）" }
+            },
+            additionalProperties: false
+          },
+          outputSchema: {
+            type: "object",
+            required: ["renders", "metadata"],
+            properties: {
+              renders: { type: "array", minItems: 1, items: { type: "object", required: ["attachment_role", "width", "height", "format"], properties: { attachment_role: { type: "string" }, width: { type: "integer" }, height: { type: "integer" }, format: { type: "string" }, background_applied: { type: "string" }, angle_applied: { type: "string" } } } },
+              metadata: { type: "object", required: ["render_time_ms"], properties: { render_time_ms: { type: "integer" }, model_version: { type: "string" }, background_removal_applied: { type: "boolean" } } }
+            },
+            additionalProperties: false
+          },
+          inputAttachments: {
+            accepts_files: true,
+            max_files: 1,
+            max_total_size_bytes: 15728640,
+            accepted_mime_types: ["image/jpeg", "image/png", "image/webp"],
+            file_roles: [{ role: "product_photo", required: true, description: "待渲染的产品照片（JPEG/PNG/WebP，最大 15MB）", accepted_types: ["image/jpeg", "image/png", "image/webp"], max_size_bytes: 15728640 }]
+          },
+          outputAttachments: {
+            includes_files: true,
+            max_files: 4,
+            max_total_size_bytes: 52428800,
+            possible_mime_types: ["image/jpeg", "image/png", "image/webp"],
+            file_roles: [
+              { role: "rendered_image_1", guaranteed: true, description: "第一张渲染图（quantity >= 1 时必返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] },
+              { role: "rendered_image_2", guaranteed: false, description: "第二张渲染图（quantity >= 2 时返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] },
+              { role: "rendered_image_3", guaranteed: false, description: "第三张渲染图（quantity >= 3 时返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] },
+              { role: "rendered_image_4", guaranteed: false, description: "第四张渲染图（quantity = 4 时返回）", possible_types: ["image/jpeg", "image/png", "image/webp"] }
+            ]
+          },
+          inputExamples: [
+            {
+              title: "蓝牙耳机产品渲染",
+              description: "上传一张耳机照片，生成深色高端背景的产品渲染图",
+              params: { product_description: "一款黑色哑光铝合金外壳的蓝牙耳机，弧形头梁，带软垫耳罩，侧面有金属品牌标识。展示科技感和高端质感。", background_style: "dark_premium", angle: "three_quarter", resolution: "1500x1500", quantity: 2 },
+              attachments: [{ role: "product_photo", filename: "headphone_raw.jpg", mime_type: "image/jpeg" }]
+            }
+          ],
+          outputExamples: [
+            {
+              title: "双角度渲染结果",
+              result: { renders: [{ attachment_role: "rendered_image_1", width: 1500, height: 1500, format: "jpeg", background_applied: "dark_premium", angle_applied: "three_quarter" }, { attachment_role: "rendered_image_2", width: 1500, height: 1500, format: "jpeg", background_applied: "dark_premium", angle_applied: "hero_45" }], metadata: { render_time_ms: 22400, model_version: "pixel-renderer-v2.4", background_removal_applied: true } },
+              attachments: [{ role: "rendered_image_1", filename: "render_three_quarter.jpg", mime_type: "image/jpeg" }, { role: "rendered_image_2", filename: "render_hero_45.jpg", mime_type: "image/jpeg" }]
+            }
+          ],
+          templateVersion: "1.0.0"
         })
       ]
     : [];
 
   const users = new Map();
   const apiKeys = new Map();
-  const sellers = new Map();
+  const responders = new Map();
   const catalog = new Map();
   const templates = new Map();
   const requests = new Map();
@@ -725,22 +1103,19 @@ export function createPlatformState(options = {}) {
     scopes: ["admin", "operator"]
   });
 
-  for (const item of bootstrapSellers) {
-    sellers.set(item.seller.seller_id, item.seller);
-    apiKeys.set(item.seller.api_key, {
-      type: "seller",
-      seller_id: item.seller.seller_id,
-      owner_user_id: item.seller.owner_user_id,
-      scopes: item.seller.scopes,
-      subagent_ids: item.seller.subagent_ids
+  for (const item of bootstrapResponders) {
+    responders.set(item.responder.responder_id, item.responder);
+    apiKeys.set(item.responder.api_key, {
+      type: "responder",
+      responder_id: item.responder.responder_id,
+      owner_user_id: item.responder.owner_user_id,
+      scopes: item.responder.scopes,
+      hotline_ids: item.responder.hotline_ids
     });
-    catalog.set(item.catalogItem.subagent_id, { ...item.catalogItem });
+    catalog.set(item.catalogItem.hotline_id, { ...item.catalogItem });
     templates.set(
       item.catalogItem.template_ref,
-      createTemplateBundle(item.catalogItem.template_ref, {
-        inputSchema: item.catalogItem.input_schema,
-        outputSchema: item.catalogItem.output_schema
-      })
+      createTemplateBundle(item.catalogItem.template_ref, item.templateOptions)
     );
   }
 
@@ -750,7 +1125,7 @@ export function createPlatformState(options = {}) {
     limits: options.limits || buildPlatformLimits(),
     users,
     apiKeys,
-    sellers,
+    responders,
     catalog,
     templates,
     requests,
@@ -761,10 +1136,10 @@ export function createPlatformState(options = {}) {
     reviewEvents,
     adminApiKey,
     bootstrap: {
-      sellers: bootstrapSellers.map((item) => ({
-        seller_id: item.seller.seller_id,
-        subagent_id: item.catalogItem.subagent_id,
-        api_key: item.seller.api_key,
+      responders: bootstrapResponders.map((item) => ({
+        responder_id: item.responder.responder_id,
+        hotline_id: item.catalogItem.hotline_id,
+        api_key: item.responder.api_key,
         signing: item.signing
       }))
     }
@@ -775,7 +1150,7 @@ export function serializePlatformState(state) {
   return {
     users: Array.from(state.users.entries()),
     apiKeys: Array.from(state.apiKeys.entries()),
-    sellers: Array.from(state.sellers.entries()),
+    responders: Array.from(state.responders.entries()),
     catalog: Array.from(state.catalog.entries()),
     templates: Array.from(state.templates.entries()),
     requests: Array.from(state.requests.entries()),
@@ -795,7 +1170,7 @@ export function hydratePlatformState(state, snapshot) {
   for (const [name, collection] of [
     ["users", state.users],
     ["apiKeys", state.apiKeys],
-    ["sellers", state.sellers],
+    ["responders", state.responders],
     ["catalog", state.catalog],
     ["templates", state.templates],
     ["requests", state.requests],
@@ -832,33 +1207,33 @@ function requireAuth(req, res, state) {
   return auth;
 }
 
-function requireBuyer(req, res, state) {
+function requireCaller(req, res, state) {
   const auth = requireAuth(req, res, state);
   if (!auth) {
     return null;
   }
-  if (auth.type !== "buyer") {
-    sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "caller lacks the required buyer scope");
+  if (auth.type !== "caller") {
+    sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "caller lacks the required caller scope");
     return null;
   }
   return auth;
 }
 
-function requireSeller(req, res, state, { sellerId, subagentId } = {}) {
+function requireResponder(req, res, state, { responderId, hotlineId } = {}) {
   const auth = requireAuth(req, res, state);
   if (!auth) {
     return null;
   }
-  if (auth.type !== "seller") {
-    sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "caller lacks the required seller scope");
+  if (auth.type !== "responder") {
+    sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "caller lacks the required responder scope");
     return null;
   }
-  if (sellerId && auth.seller_id !== sellerId) {
-    sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "seller_id does not match caller identity");
+  if (responderId && auth.responder_id !== responderId) {
+    sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "responder_id does not match caller identity");
     return null;
   }
-  if (subagentId && !auth.subagent_ids.includes(subagentId)) {
-    sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "subagent_id is not owned by caller");
+  if (hotlineId && !auth.hotline_ids.includes(hotlineId)) {
+    sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "hotline_id is not owned by caller");
     return null;
   }
   return auth;
@@ -872,7 +1247,7 @@ function requireOperator(req, res, state) {
   if (auth.type === "admin") {
     return auth;
   }
-  if (auth.type !== "buyer") {
+  if (auth.type !== "caller") {
     sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "caller lacks the required scope");
     return null;
   }
@@ -889,9 +1264,9 @@ function getOrCreateRequest(state, requestId) {
   if (!request) {
     request = {
       request_id: requestId,
-      buyer_id: null,
-      seller_id: null,
-      subagent_id: null,
+      caller_id: null,
+      responder_id: null,
+      hotline_id: null,
       delivery_meta: null,
       expected_signer_public_key_pem: null,
       events: []
@@ -955,29 +1330,29 @@ function appendRequestEvent(request, eventType, detail = {}) {
   }, readNumberEnv(process.env.PLATFORM_REQUEST_EVENT_HISTORY_LIMIT, DEFAULT_REQUEST_EVENT_HISTORY_LIMIT));
 }
 
-function findMatchingRequestEvent(request, { eventType, sellerId, subagentId }) {
+function findMatchingRequestEvent(request, { eventType, responderId, hotlineId }) {
   return (request.events || []).find(
-    (event) => event.event_type === eventType && event.seller_id === sellerId && event.subagent_id === subagentId
+    (event) => event.event_type === eventType && event.responder_id === responderId && event.hotline_id === hotlineId
   );
 }
 
-function buildSellerAdminSummary(state, seller, catalogItems = []) {
+function buildResponderAdminSummary(state, responder, catalogItems = []) {
   return {
-    seller_id: seller.seller_id,
-    owner_user_id: seller.owner_user_id,
-    contact_email: seller.contact_email,
-    support_email: seller.support_email,
-    status: seller.status || "disabled",
-    review_status: seller.review_status || "pending",
-    reviewed_at: seller.reviewed_at || null,
-    reviewed_by: seller.reviewed_by || null,
-    review_reason: seller.review_reason || null,
-    availability_status: seller.availability_status,
-    last_heartbeat_at: seller.last_heartbeat_at,
-    subagent_ids: seller.subagent_ids,
-    subagent_count: catalogItems.length,
-    subagents: catalogItems.map((item) => ({
-      subagent_id: item.subagent_id,
+    responder_id: responder.responder_id,
+    owner_user_id: responder.owner_user_id,
+    contact_email: responder.contact_email,
+    support_email: responder.support_email,
+    status: responder.status || "disabled",
+    review_status: responder.review_status || "pending",
+    reviewed_at: responder.reviewed_at || null,
+    reviewed_by: responder.reviewed_by || null,
+    review_reason: responder.review_reason || null,
+    availability_status: responder.availability_status,
+    last_heartbeat_at: responder.last_heartbeat_at,
+    hotline_ids: responder.hotline_ids,
+    hotline_count: catalogItems.length,
+    hotlines: catalogItems.map((item) => ({
+      hotline_id: item.hotline_id,
       display_name: item.display_name,
       status: item.status,
       review_status: item.review_status || "pending",
@@ -993,9 +1368,9 @@ function buildSellerAdminSummary(state, seller, catalogItems = []) {
 function buildRequestAdminSummary(request) {
   return {
     request_id: request.request_id,
-    buyer_id: request.buyer_id,
-    seller_id: request.seller_id,
-    subagent_id: request.subagent_id,
+    caller_id: request.caller_id,
+    responder_id: request.responder_id,
+    hotline_id: request.hotline_id,
     request_kind: request.request_kind || "remote_request",
     request_visibility: request.request_visibility || "public",
     event_count: Array.isArray(request.events) ? request.events.length : 0,
@@ -1010,10 +1385,10 @@ function describeActor(auth) {
   if (auth.type === "admin") {
     return { actor_type: "admin", actor_id: auth.admin_id || "platform_admin" };
   }
-  if (auth.type === "buyer") {
-    return { actor_type: "buyer", actor_id: auth.user_id };
+  if (auth.type === "caller") {
+    return { actor_type: "caller", actor_id: auth.user_id };
   }
-  return { actor_type: auth.type || "unknown", actor_id: auth.user_id || auth.seller_id || null };
+  return { actor_type: auth.type || "unknown", actor_id: auth.user_id || auth.responder_id || null };
 }
 
 function appendAuditEvent(state, auth, action, target, detail = {}) {
@@ -1042,48 +1417,58 @@ function appendReviewEvent(state, auth, reviewStatus, target, detail = {}) {
 
 function buildSubmissionPayload(body) {
   return {
-    seller_id: body.seller_id,
-    subagent_id: body.subagent_id,
+    responder_id: body.responder_id,
+    hotline_id: body.hotline_id,
     display_name: body.display_name,
     description: body.description || null,
-    template_ref: body.template_ref || `${body.subagent_id}@v1`,
-    seller_public_key_pem: body.seller_public_key_pem,
-    task_delivery_address: body.task_delivery_address || `local://relay/${body.seller_id}/${body.subagent_id}`,
+    summary: body.summary || null,
+    template_ref: body.template_ref || `${body.hotline_id}@v1`,
+    responder_public_key_pem: body.responder_public_key_pem,
+    task_delivery_address: body.task_delivery_address || `local://relay/${body.responder_id}/${body.hotline_id}`,
     task_types: normalizeStringList(body.task_types),
     capabilities: normalizeStringList(body.capabilities),
     tags: normalizeStringList(body.tags),
     input_schema: body.input_schema || null,
     output_schema: body.output_schema || null,
+    input_attachments: body.input_attachments || null,
+    output_attachments: body.output_attachments || null,
+    input_examples: Array.isArray(body.input_examples) ? body.input_examples : null,
+    output_examples: Array.isArray(body.output_examples) ? body.output_examples : null,
+    recommended_for: Array.isArray(body.recommended_for) ? body.recommended_for : null,
+    not_recommended_for: Array.isArray(body.not_recommended_for) ? body.not_recommended_for : null,
+    limitations: Array.isArray(body.limitations) ? body.limitations : null,
+    input_summary: body.input_summary || null,
+    output_summary: body.output_summary || null,
     contact_email: body.contact_email || null,
     support_email: body.support_email || null
   };
 }
 
-function determineSubmissionVersion(state, subagentId) {
-  const current = state.submissions.get(subagentId);
+function determineSubmissionVersion(state, hotlineId) {
+  const current = state.submissions.get(hotlineId);
   return Number(current?.submission_version || 0) + 1;
 }
 
 function createTaskClaims(state, {
-  buyerId,
+  callerId,
   requestId,
-  sellerId,
-  subagentId,
+  responderId,
+  hotlineId,
   requestKind = "remote_request"
 }) {
   const issuedAt = Math.floor(Date.now() / 1000);
   const tokenTtlSeconds = Number(process.env.TOKEN_TTL_SECONDS || state.tokenTtlSeconds);
   const claims = {
     iss: "delexec-platform-api",
-    sub: buyerId,
-    aud: sellerId,
+    sub: callerId,
+    aud: responderId,
     jti: randomId("tok"),
     iat: issuedAt,
     exp: issuedAt + tokenTtlSeconds,
-    buyer_id: buyerId,
+    caller_id: callerId,
     request_id: requestId,
-    seller_id: sellerId,
-    subagent_id: subagentId,
+    responder_id: responderId,
+    hotline_id: hotlineId,
     request_kind: requestKind
   };
   return {
@@ -1093,11 +1478,11 @@ function createTaskClaims(state, {
 }
 
 function createDeliveryMeta(state, request, catalogItem, resultDelivery) {
-  request.expected_signer_public_key_pem = catalogItem.seller_public_key_pem;
+  request.expected_signer_public_key_pem = catalogItem.responder_public_key_pem;
   request.delivery_meta = {
     request_id: request.request_id,
-    seller_id: catalogItem.seller_id,
-    subagent_id: catalogItem.subagent_id,
+    responder_id: catalogItem.responder_id,
+    hotline_id: catalogItem.hotline_id,
     task_delivery: {
       kind: catalogItem.task_delivery_address.startsWith("local://") ? "local" : "email",
       address: catalogItem.task_delivery_address,
@@ -1111,7 +1496,7 @@ function createDeliveryMeta(state, request, catalogItem, resultDelivery) {
     verification: {
       display_code: request.delivery_meta?.verification?.display_code || createDisplayCode()
     },
-    seller_public_key_pem: catalogItem.seller_public_key_pem
+    responder_public_key_pem: catalogItem.responder_public_key_pem
   };
   return request.delivery_meta;
 }
@@ -1142,8 +1527,8 @@ function verifyReviewResult(request, resultPackage) {
   }
   if (
     resultPackage.request_id !== request.request_id ||
-    resultPackage.seller_id !== request.seller_id ||
-    resultPackage.subagent_id !== request.subagent_id
+    resultPackage.responder_id !== request.responder_id ||
+    resultPackage.hotline_id !== request.hotline_id
   ) {
     return { ok: false, code: "RESULT_CONTEXT_MISMATCH", summary: "review test result does not match request context" };
   }
@@ -1194,12 +1579,12 @@ async function runReviewTestHarness(state, reviewTest, request, transport, onSta
   await transport.send({
     message_id: `msg_review_${crypto.randomUUID()}`,
     thread_id: `req:${request.request_id}`,
-    from: REVIEW_TEST_BUYER_ID,
+    from: REVIEW_TEST_CALLER_ID,
     to: request.delivery_meta.task_delivery.address,
     type: "task.requested",
     request_id: request.request_id,
-    seller_id: request.seller_id,
-    subagent_id: request.subagent_id,
+    responder_id: request.responder_id,
+    hotline_id: request.hotline_id,
     task_token: reviewTest.task_token,
     result_delivery: request.delivery_meta.result_delivery,
     verification: request.delivery_meta.verification,
@@ -1263,150 +1648,161 @@ function paginateItems(items, { limit, offset }) {
 }
 
 function issueTaskToken(state, auth, body) {
-  const catalogItem = state.catalog.get(body.subagent_id);
-  const seller = state.sellers.get(body.seller_id);
+  const catalogItem = state.catalog.get(body.hotline_id);
+  const responder = state.responders.get(body.responder_id);
   if (
     !catalogItem ||
-    !seller ||
-    catalogItem.seller_id !== body.seller_id ||
+    !responder ||
+    catalogItem.responder_id !== body.responder_id ||
     resolveCatalogVisibility(state, catalogItem) !== "public"
   ) {
-    return { error: { code: "CATALOG_SUBAGENT_NOT_FOUND", message: "subagent not found or not enabled", retryable: false } };
+    return { error: { code: "CATALOG_HOTLINE_NOT_FOUND", message: "hotline not found or not enabled", retryable: false } };
   }
 
   const request = getOrCreateRequest(state, body.request_id);
-  if (request.buyer_id && request.buyer_id !== auth.user_id) {
-    return { error: { code: "AUTH_RESOURCE_FORBIDDEN", message: "request is owned by another buyer", retryable: false }, statusCode: 403 };
+  if (request.caller_id && request.caller_id !== auth.user_id) {
+    return { error: { code: "AUTH_RESOURCE_FORBIDDEN", message: "request is owned by another caller", retryable: false }, statusCode: 403 };
   }
-  if (request.seller_id && request.seller_id !== body.seller_id) {
-    return { error: { code: "REQUEST_BINDING_MISMATCH", message: "seller_id or subagent_id does not match existing request", retryable: false }, statusCode: 409 };
+  if (request.responder_id && request.responder_id !== body.responder_id) {
+    return { error: { code: "REQUEST_BINDING_MISMATCH", message: "responder_id or hotline_id does not match existing request", retryable: false }, statusCode: 409 };
   }
-  if (request.subagent_id && request.subagent_id !== body.subagent_id) {
-    return { error: { code: "REQUEST_BINDING_MISMATCH", message: "seller_id or subagent_id does not match existing request", retryable: false }, statusCode: 409 };
+  if (request.hotline_id && request.hotline_id !== body.hotline_id) {
+    return { error: { code: "REQUEST_BINDING_MISMATCH", message: "responder_id or hotline_id does not match existing request", retryable: false }, statusCode: 409 };
   }
 
   const issued = createTaskClaims(state, {
-    buyerId: auth.user_id,
+    callerId: auth.user_id,
     requestId: body.request_id,
-    sellerId: body.seller_id,
-    subagentId: body.subagent_id
+    responderId: body.responder_id,
+    hotlineId: body.hotline_id
   });
-  request.buyer_id = auth.user_id;
-  request.seller_id = body.seller_id;
-  request.subagent_id = body.subagent_id;
+  request.caller_id = auth.user_id;
+  request.responder_id = body.responder_id;
+  request.hotline_id = body.hotline_id;
   request.request_kind ||= "remote_request";
   request.request_visibility ||= "public";
-  appendRequestEvent(request, "TASK_TOKEN_ISSUED", { actor_type: "buyer" });
+  appendRequestEvent(request, "TASK_TOKEN_ISSUED", { actor_type: "caller" });
 
   return issued;
 }
 
-function submitCatalogSubagent(state, body, auth = null, { allowUnauthenticatedCreate = false } = {}) {
-  if (!body.seller_id || !body.subagent_id || !body.display_name || !body.seller_public_key_pem) {
+function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCreate = false } = {}) {
+  if (!body.responder_id || !body.hotline_id || !body.display_name || !body.responder_public_key_pem) {
     return {
       error: {
-        code: "CONTRACT_INVALID_SELLER_REGISTER_BODY",
-        message: "seller_id, subagent_id, display_name, and seller_public_key_pem are required",
+        code: "CONTRACT_INVALID_RESPONDER_REGISTER_BODY",
+        message: "responder_id, hotline_id, display_name, and responder_public_key_pem are required",
         retryable: false
       },
       statusCode: 400
     };
   }
 
-  const existingSeller = state.sellers.get(body.seller_id) || null;
-  const existingItem = state.catalog.get(body.subagent_id) || null;
-  if (existingItem && existingItem.seller_id !== body.seller_id) {
+  const existingResponder = state.responders.get(body.responder_id) || null;
+  const existingItem = state.catalog.get(body.hotline_id) || null;
+  if (existingItem && existingItem.responder_id !== body.responder_id) {
     return {
-      error: { code: "SUBAGENT_ID_ALREADY_EXISTS", message: "a subagent with this id is already registered", retryable: false },
+      error: { code: "HOTLINE_ID_ALREADY_EXISTS", message: "a hotline with this id is already registered", retryable: false },
       statusCode: 409
     };
   }
 
-  if (existingSeller && !existingItem && (existingSeller.subagent_ids || []).length >= (state.limits?.subagentsPerSeller || DEFAULT_SUBAGENT_QUOTA_PER_SELLER)) {
+  if (existingResponder && !existingItem && (existingResponder.hotline_ids || []).length >= (state.limits?.hotlinesPerResponder || DEFAULT_HOTLINE_QUOTA_PER_RESPONDER)) {
     return {
       error: {
-        code: "SUBAGENT_QUOTA_EXCEEDED",
-        message: `seller has reached the configured subagent quota of ${state.limits?.subagentsPerSeller || DEFAULT_SUBAGENT_QUOTA_PER_SELLER}`,
+        code: "HOTLINE_QUOTA_EXCEEDED",
+        message: `responder has reached the configured hotline quota of ${state.limits?.hotlinesPerResponder || DEFAULT_HOTLINE_QUOTA_PER_RESPONDER}`,
         retryable: false
       },
       statusCode: 429
     };
   }
 
-  if (!existingSeller && !auth && !allowUnauthenticatedCreate) {
+  if (!existingResponder && !auth && !allowUnauthenticatedCreate) {
     return {
-      error: { code: "AUTH_UNAUTHORIZED", message: "buyer or seller authentication is required for onboarding", retryable: false },
+      error: { code: "AUTH_UNAUTHORIZED", message: "caller or responder authentication is required for onboarding", retryable: false },
       statusCode: 401
     };
   }
 
-  if (existingSeller) {
+  if (existingResponder) {
     if (!auth) {
       return {
-        error: { code: "AUTH_UNAUTHORIZED", message: "authentication required to manage an existing seller", retryable: false },
+        error: { code: "AUTH_UNAUTHORIZED", message: "authentication required to manage an existing responder", retryable: false },
         statusCode: 401
       };
     }
-    if (!canManageSeller(auth, existingSeller)) {
-      return {
-        error: { code: "AUTH_RESOURCE_FORBIDDEN", message: "caller does not own this seller identity", retryable: false },
-        statusCode: 403
-      };
+    if (!canManageResponder(auth, existingResponder)) {
+      const ownerIsRegisteredUser = state.users.has(existingResponder.owner_user_id);
+      const publicKeyMatches =
+        body.responder_public_key_pem &&
+        existingResponder.responder_public_key_pem === body.responder_public_key_pem;
+      if (!ownerIsRegisteredUser || publicKeyMatches) {
+        existingResponder.owner_user_id = auth.user_id;
+        state.responders.set(existingResponder.responder_id, existingResponder);
+        addUserRole(state, auth.user_id, "responder");
+      } else {
+        return {
+          error: { code: "AUTH_RESOURCE_FORBIDDEN", message: "caller does not own this responder identity", retryable: false },
+          statusCode: 403
+        };
+      }
     }
   }
 
   const submissionPayload = buildSubmissionPayload(body);
-  const ownerUserId = existingSeller?.owner_user_id || auth?.user_id || body.owner_user_id || randomId("user");
-  const sellerApiKey = existingSeller?.api_key || `sk_seller_${crypto.randomBytes(12).toString("hex")}`;
+  const ownerUserId = existingResponder?.owner_user_id || auth?.user_id || body.owner_user_id || randomId("user");
+  const responderApiKey = existingResponder?.api_key || `sk_responder_${crypto.randomBytes(12).toString("hex")}`;
   const heartbeatAt = nowIso();
   const templateRef = submissionPayload.template_ref;
-  const submissionVersion = determineSubmissionVersion(state, body.subagent_id);
+  const submissionVersion = determineSubmissionVersion(state, body.hotline_id);
 
-  const seller = existingSeller || {
-    seller_id: body.seller_id,
+  const responder = existingResponder || {
+    responder_id: body.responder_id,
     owner_user_id: ownerUserId,
-    api_key: sellerApiKey,
-    scopes: ["seller"],
-    subagent_ids: [],
+    api_key: responderApiKey,
+    scopes: ["responder"],
+    hotline_ids: [],
     status: "disabled",
     review_status: "pending",
     reviewed_at: null,
     reviewed_by: null,
     review_reason: null,
-    seller_public_key_pem: body.seller_public_key_pem,
-    seller_public_keys_pem: existingSeller?.seller_public_keys_pem || [body.seller_public_key_pem],
+    responder_public_key_pem: body.responder_public_key_pem,
+    responder_public_keys_pem: existingResponder?.responder_public_keys_pem || [body.responder_public_key_pem],
     last_heartbeat_at: heartbeatAt,
     availability_status: "healthy",
-    contact_email: body.contact_email || state.users.get(ownerUserId)?.contact_email || `${body.seller_id}@test.local`,
-    support_email: body.support_email || `support+${body.seller_id}@test.local`
+    contact_email: body.contact_email || state.users.get(ownerUserId)?.contact_email || `${body.responder_id}@test.local`,
+    support_email: body.support_email || `support+${body.responder_id}@test.local`
   };
 
-  const sellerChanged =
-    !existingSeller ||
-    seller.contact_email !== (body.contact_email || seller.contact_email) ||
-    seller.support_email !== (body.support_email || seller.support_email) ||
-    seller.seller_public_key_pem !== body.seller_public_key_pem;
+  const responderChanged =
+    !existingResponder ||
+    responder.contact_email !== (body.contact_email || responder.contact_email) ||
+    responder.support_email !== (body.support_email || responder.support_email) ||
+    responder.responder_public_key_pem !== body.responder_public_key_pem;
 
-  seller.contact_email = body.contact_email || seller.contact_email;
-  seller.support_email = body.support_email || seller.support_email;
-  seller.seller_public_key_pem = body.seller_public_key_pem;
-  seller.seller_public_keys_pem = Array.from(new Set([body.seller_public_key_pem, ...(seller.seller_public_keys_pem || [])]));
-  seller.subagent_ids = Array.from(new Set([...(seller.subagent_ids || []), body.subagent_id]));
-  seller.last_heartbeat_at = seller.last_heartbeat_at || heartbeatAt;
-  seller.availability_status ||= "healthy";
-  if (!existingSeller || sellerChanged) {
-    seller.review_status = "pending";
-    seller.status = "disabled";
-    seller.reviewed_at = null;
-    seller.reviewed_by = null;
-    seller.review_reason = null;
+  responder.contact_email = body.contact_email || responder.contact_email;
+  responder.support_email = body.support_email || responder.support_email;
+  responder.responder_public_key_pem = body.responder_public_key_pem;
+  responder.responder_public_keys_pem = Array.from(new Set([body.responder_public_key_pem, ...(responder.responder_public_keys_pem || [])]));
+  responder.hotline_ids = Array.from(new Set([...(responder.hotline_ids || []), body.hotline_id]));
+  responder.last_heartbeat_at = responder.last_heartbeat_at || heartbeatAt;
+  responder.availability_status ||= "healthy";
+  if (!existingResponder || responderChanged) {
+    responder.review_status = "pending";
+    responder.status = "disabled";
+    responder.reviewed_at = null;
+    responder.reviewed_by = null;
+    responder.review_reason = null;
   }
 
   const catalogItem = {
-    seller_id: body.seller_id,
-    subagent_id: body.subagent_id,
+    responder_id: body.responder_id,
+    hotline_id: body.hotline_id,
     display_name: body.display_name,
     description: body.description || existingItem?.description || null,
+    summary: submissionPayload.summary || existingItem?.summary || null,
     status: "disabled",
     review_status: "pending",
     submission_version: submissionVersion,
@@ -1422,52 +1818,65 @@ function submitCatalogSubagent(state, body, auth = null, { allowUnauthenticatedC
     tags: submissionPayload.tags,
     input_schema: submissionPayload.input_schema,
     output_schema: submissionPayload.output_schema,
-    seller_public_key_pem: submissionPayload.seller_public_key_pem,
-    seller_public_keys_pem: seller.seller_public_keys_pem,
+    input_attachments: submissionPayload.input_attachments || existingItem?.input_attachments || null,
+    output_attachments: submissionPayload.output_attachments || existingItem?.output_attachments || null,
+    input_examples: submissionPayload.input_examples || existingItem?.input_examples || null,
+    output_examples: submissionPayload.output_examples || existingItem?.output_examples || null,
+    recommended_for: submissionPayload.recommended_for || existingItem?.recommended_for || null,
+    not_recommended_for: submissionPayload.not_recommended_for || existingItem?.not_recommended_for || null,
+    limitations: submissionPayload.limitations || existingItem?.limitations || null,
+    input_summary: submissionPayload.input_summary || existingItem?.input_summary || null,
+    output_summary: submissionPayload.output_summary || existingItem?.output_summary || null,
+    responder_public_key_pem: submissionPayload.responder_public_key_pem,
+    responder_public_keys_pem: responder.responder_public_keys_pem,
     task_delivery_address: submissionPayload.task_delivery_address
   };
 
-  state.sellers.set(seller.seller_id, seller);
-  state.apiKeys.set(sellerApiKey, {
-    type: "seller",
-    seller_id: seller.seller_id,
+  state.responders.set(responder.responder_id, responder);
+  state.apiKeys.set(responderApiKey, {
+    type: "responder",
+    responder_id: responder.responder_id,
     owner_user_id: ownerUserId,
-    scopes: seller.scopes,
-    subagent_ids: seller.subagent_ids
+    scopes: responder.scopes,
+    hotline_ids: responder.hotline_ids
   });
-  state.catalog.set(catalogItem.subagent_id, catalogItem);
+  state.catalog.set(catalogItem.hotline_id, catalogItem);
   state.templates.set(
     templateRef,
     createTemplateBundle(templateRef, {
       inputSchema: catalogItem.input_schema,
-      outputSchema: catalogItem.output_schema
+      outputSchema: catalogItem.output_schema,
+      inputAttachments: catalogItem.input_attachments,
+      outputAttachments: catalogItem.output_attachments,
+      inputExamples: catalogItem.input_examples,
+      outputExamples: catalogItem.output_examples
     })
   );
-  state.submissions.set(catalogItem.subagent_id, {
-    seller_id: seller.seller_id,
-    subagent_id: catalogItem.subagent_id,
+  state.submissions.set(catalogItem.hotline_id, {
+    responder_id: responder.responder_id,
+    hotline_id: catalogItem.hotline_id,
     owner_user_id: ownerUserId,
     submitted_at: heartbeatAt,
-    submitted_by: auth?.user_id || auth?.seller_id || "system",
+    submitted_by: auth?.user_id || auth?.responder_id || "system",
     review_reason: body.review_reason || body.reason || null,
     submission_version: submissionVersion,
     submitted_payload: submissionPayload,
-    latest_review_test_request_id: existingItem ? state.submissions.get(catalogItem.subagent_id)?.latest_review_test_request_id || null : null
+    latest_review_test_request_id: existingItem ? state.submissions.get(catalogItem.hotline_id)?.latest_review_test_request_id || null : null
   });
 
   if (auth?.user_id) {
-    addUserRole(state, auth.user_id, "seller");
+    addUserRole(state, auth.user_id, "responder");
   }
 
-  if (!existingSeller || sellerChanged) {
+  if (!existingResponder || responderChanged) {
     appendReviewEvent(
       state,
       auth,
       "pending",
-      { type: "seller", id: seller.seller_id },
+      { type: "responder", id: responder.responder_id },
       {
-        seller_id: seller.seller_id,
-        subagent_id: catalogItem.subagent_id,
+        responder_id: responder.responder_id,
+        hotline_id: catalogItem.hotline_id,
         submission_version: submissionVersion,
         reason: body.review_reason || body.reason || null
       }
@@ -1477,28 +1886,28 @@ function submitCatalogSubagent(state, body, auth = null, { allowUnauthenticatedC
     state,
     auth,
     "pending",
-    { type: "subagent", id: catalogItem.subagent_id },
+    { type: "hotline", id: catalogItem.hotline_id },
     {
-      seller_id: seller.seller_id,
-      subagent_id: catalogItem.subagent_id,
+      responder_id: responder.responder_id,
+      hotline_id: catalogItem.hotline_id,
       submission_version: submissionVersion,
       reason: body.review_reason || body.reason || null
     }
   );
 
   return {
-    seller_id: seller.seller_id,
-    subagent_id: catalogItem.subagent_id,
-    seller_api_key: sellerApiKey,
-    api_key: sellerApiKey,
+    responder_id: responder.responder_id,
+    hotline_id: catalogItem.hotline_id,
+    responder_api_key: responderApiKey,
+    api_key: responderApiKey,
     owner_user_id: ownerUserId,
     task_delivery_address: catalogItem.task_delivery_address,
-    seller_public_key_pem: catalogItem.seller_public_key_pem,
+    responder_public_key_pem: catalogItem.responder_public_key_pem,
     status: catalogItem.status,
-    seller_status: seller.status,
-    subagent_status: catalogItem.status,
-    seller_review_status: seller.review_status,
-    subagent_review_status: catalogItem.review_status,
+    responder_status: responder.status,
+    hotline_status: catalogItem.status,
+    responder_review_status: responder.review_status,
+    hotline_review_status: catalogItem.review_status,
     review_status: catalogItem.review_status,
     catalog_visibility: resolveCatalogVisibility(state, catalogItem),
     submission_version: submissionVersion,
@@ -1508,8 +1917,8 @@ function submitCatalogSubagent(state, body, auth = null, { allowUnauthenticatedC
   };
 }
 
-function registerSellerIdentity(state, body, auth = null) {
-  return submitCatalogSubagent(state, body, auth, {
+function registerResponderIdentity(state, body, auth = null) {
+  return submitCatalogHotline(state, body, auth, {
     allowUnauthenticatedCreate: true
   });
 }
@@ -1552,9 +1961,9 @@ export function createPlatformServer({
       "# HELP rsp_platform_requests_total Total requests tracked by the platform state.",
       "# TYPE rsp_platform_requests_total gauge",
       `rsp_platform_requests_total ${state.requests.size}`,
-      "# HELP rsp_platform_catalog_public_subagents Total public subagents visible in catalog.",
-      "# TYPE rsp_platform_catalog_public_subagents gauge",
-      `rsp_platform_catalog_public_subagents ${Array.from(state.catalog.values()).filter((item) => resolveCatalogVisibility(state, item) === "public").length}`,
+      "# HELP rsp_platform_catalog_public_hotlines Total public hotlines visible in catalog.",
+      "# TYPE rsp_platform_catalog_public_hotlines gauge",
+      `rsp_platform_catalog_public_hotlines ${Array.from(state.catalog.values()).filter((item) => resolveCatalogVisibility(state, item) === "public").length}`,
       "# HELP rsp_platform_metrics_events_total Total metric events retained by the platform.",
       "# TYPE rsp_platform_metrics_events_total gauge",
       `rsp_platform_metrics_events_total ${state.metricsEvents.length}`
@@ -1626,7 +2035,7 @@ export function createPlatformServer({
           return;
         }
         const body = await parseJsonBody(req);
-        const user = registerBuyerUser(state, body);
+        const user = registerCallerUser(state, body);
         if (user.error) {
           sendJson(res, user.statusCode || 400, { error: user.error });
           return;
@@ -1637,17 +2046,17 @@ export function createPlatformServer({
         return;
       }
 
-      if (method === "POST" && pathname === "/v1/sellers/register") {
+      if (method === "POST" && pathname === "/v2/responders/register") {
         const body = await parseJsonBody(req);
         const auth = resolveAuth(req, state);
-        if (auth && auth.type !== "buyer" && auth.type !== "seller") {
-          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only buyer or seller callers may register");
+        if (auth && auth.type !== "caller" && auth.type !== "responder") {
+          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only caller or responder callers may register");
           return;
         }
-        if (!enforceRateLimit(req, res, "registerSellerMax", auth)) {
+        if (!enforceRateLimit(req, res, "registerResponderMax", auth)) {
           return;
         }
-        const registered = registerSellerIdentity(state, body, auth);
+        const registered = registerResponderIdentity(state, body, auth);
         if (registered.error) {
           sendJson(res, registered.statusCode || 400, { error: registered.error });
           return;
@@ -1657,13 +2066,13 @@ export function createPlatformServer({
         return;
       }
 
-      if (method === "POST" && pathname === "/v1/catalog/subagents") {
+      if (method === "POST" && pathname === "/v2/hotlines") {
         const auth = requireAuth(req, res, state);
         if (!auth) {
           return;
         }
-        if (auth.type !== "buyer" && auth.type !== "seller") {
-          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only buyer or seller callers may submit onboarding");
+        if (auth.type !== "caller" && auth.type !== "responder") {
+          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only caller or responder callers may submit onboarding");
           return;
         }
         if (!enforceRateLimit(req, res, "catalogSubmitMax", auth)) {
@@ -1671,7 +2080,7 @@ export function createPlatformServer({
         }
 
         const body = await parseJsonBody(req);
-        const registered = submitCatalogSubagent(state, body, auth);
+        const registered = submitCatalogHotline(state, body, auth);
         if (registered.error) {
           sendJson(res, registered.statusCode || 400, { error: registered.error });
           return;
@@ -1681,7 +2090,7 @@ export function createPlatformServer({
         return;
       }
 
-      if (method === "GET" && pathname === "/v1/catalog/subagents") {
+      if (method === "GET" && pathname === "/v2/hotlines") {
         const statusFilter = url.searchParams.get("status") || "enabled";
         const availabilityFilter = url.searchParams.get("availability_status");
         const taskTypeFilter = url.searchParams.get("task_type");
@@ -1704,19 +2113,88 @@ export function createPlatformServer({
         return;
       }
 
-      const catalogDetailMatch = pathname.match(/^\/v1\/catalog\/subagents\/([^/]+)$/);
+      if (method === "GET" && pathname === "/marketplace/hotlines") {
+        const taskTypeFilter = url.searchParams.get("task_type");
+        const capabilityFilter = url.searchParams.get("capability");
+        const tagFilter = url.searchParams.get("tag");
+        const responderFilter = url.searchParams.get("responder_id");
+        const items = Array.from(state.catalog.values())
+          .filter((item) => resolveCatalogVisibility(state, item) === "public")
+          .filter((item) => !taskTypeFilter || (item.task_types || []).includes(taskTypeFilter))
+          .filter((item) => !capabilityFilter || (item.capabilities || []).includes(capabilityFilter))
+          .filter((item) => !tagFilter || (item.tags || []).includes(tagFilter))
+          .filter((item) => !responderFilter || item.responder_id === responderFilter)
+          .map((item) => buildMarketplaceHotlineSummary(state, item));
+
+        sendJson(res, 200, { items });
+        return;
+      }
+
+      if (method === "GET" && pathname === "/marketplace/meta") {
+        sendJson(res, 200, buildMarketplaceMeta(state));
+        return;
+      }
+
+      const marketplaceHotlineMatch = pathname.match(/^\/marketplace\/hotlines\/([^/]+)$/);
+      if (method === "GET" && marketplaceHotlineMatch) {
+        const item = state.catalog.get(marketplaceHotlineMatch[1]);
+        if (!item || resolveCatalogVisibility(state, item) !== "public") {
+          sendError(res, 404, "MARKETPLACE_HOTLINE_NOT_FOUND", "hotline not found in marketplace");
+          return;
+        }
+        sendJson(res, 200, buildMarketplaceHotlineDetail(state, item));
+        return;
+      }
+
+      const marketplaceTemplateBundleMatch = pathname.match(/^\/marketplace\/hotlines\/([^/]+)\/template-bundle$/);
+      if (method === "GET" && marketplaceTemplateBundleMatch) {
+        const hotlineId = marketplaceTemplateBundleMatch[1];
+        const templateRef = url.searchParams.get("template_ref");
+        const item = state.catalog.get(hotlineId);
+        if (!item || resolveCatalogVisibility(state, item) !== "public") {
+          sendError(res, 404, "TEMPLATE_NOT_FOUND", "hotline or template not found in marketplace");
+          return;
+        }
+        if (templateRef && item.template_ref !== templateRef) {
+          sendError(res, 409, "TEMPLATE_REF_MISMATCH", "template_ref does not match catalog entry");
+          return;
+        }
+        const bundle = state.templates.get(item.template_ref);
+        if (!bundle) {
+          sendError(res, 404, "TEMPLATE_NOT_FOUND", "template bundle not found");
+          return;
+        }
+        sendJson(res, 200, bundle);
+        return;
+      }
+
+      const marketplaceResponderMatch = pathname.match(/^\/marketplace\/responders\/([^/]+)$/);
+      if (method === "GET" && marketplaceResponderMatch) {
+        const responder = state.responders.get(marketplaceResponderMatch[1]);
+        const hasPublicHotlines = Array.from(state.catalog.values()).some(
+          (item) => item.responder_id === marketplaceResponderMatch[1] && resolveCatalogVisibility(state, item) === "public"
+        );
+        if (!responder || !hasPublicHotlines) {
+          sendError(res, 404, "MARKETPLACE_RESPONDER_NOT_FOUND", "responder not found in marketplace");
+          return;
+        }
+        sendJson(res, 200, buildMarketplaceResponderProfile(state, responder));
+        return;
+      }
+
+      const catalogDetailMatch = pathname.match(/^\/v1\/catalog\/hotlines\/([^/]+)$/);
       if (method === "GET" && catalogDetailMatch) {
         const item = state.catalog.get(catalogDetailMatch[1]);
         if (!item) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
         const auth = resolveAuth(req, state);
         if (!canViewCatalogItemDetail(state, auth, item)) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
-        if (resolveCatalogVisibility(state, item) === "public" && !isOperatorAuth(auth, state) && !canManageSeller(auth, state.sellers.get(item.seller_id))) {
+        if (resolveCatalogVisibility(state, item) === "public" && !isOperatorAuth(auth, state) && !canManageResponder(auth, state.responders.get(item.responder_id))) {
           sendJson(res, 200, sanitizeCatalogItemForResponse(state, item));
           return;
         }
@@ -1724,18 +2202,18 @@ export function createPlatformServer({
         return;
       }
 
-      const templateMatch = pathname.match(/^\/v1\/catalog\/subagents\/([^/]+)\/template-bundle$/);
+      const templateMatch = pathname.match(/^\/v1\/catalog\/hotlines\/([^/]+)\/template-bundle$/);
       if (method === "GET" && templateMatch) {
-        const subagentId = templateMatch[1];
+        const hotlineId = templateMatch[1];
         const templateRef = url.searchParams.get("template_ref");
-        const catalogItem = state.catalog.get(subagentId);
+        const catalogItem = state.catalog.get(hotlineId);
         if (!catalogItem) {
-          sendError(res, 404, "TEMPLATE_NOT_FOUND", "subagent or template not found");
+          sendError(res, 404, "TEMPLATE_NOT_FOUND", "hotline or template not found");
           return;
         }
         const auth = resolveAuth(req, state);
         if (!canViewCatalogItemDetail(state, auth, catalogItem)) {
-          sendError(res, 404, "TEMPLATE_NOT_FOUND", "subagent or template not found");
+          sendError(res, 404, "TEMPLATE_NOT_FOUND", "hotline or template not found");
           return;
         }
         if (templateRef && catalogItem.template_ref !== templateRef) {
@@ -1747,14 +2225,14 @@ export function createPlatformServer({
       }
 
       if (method === "POST" && pathname === "/v1/tokens/task") {
-        const auth = requireBuyer(req, res, state);
+        const auth = requireCaller(req, res, state);
         if (!auth) {
           return;
         }
 
         const body = await parseJsonBody(req);
-        if (!body.request_id || !body.seller_id || !body.subagent_id) {
-          sendError(res, 400, "CONTRACT_INVALID_TOKEN_REQUEST", "request_id, seller_id, and subagent_id are required");
+        if (!body.request_id || !body.responder_id || !body.hotline_id) {
+          sendError(res, 400, "CONTRACT_INVALID_TOKEN_REQUEST", "request_id, responder_id, and hotline_id are required");
           return;
         }
 
@@ -1774,18 +2252,18 @@ export function createPlatformServer({
         const taskToken = body.task_token || body.token;
         const parsed = parseToken(state.tokenSecret, taskToken);
 
-        const auth = parsed.claims?.seller_id
-          ? requireSeller(req, res, state, {
-              sellerId: parsed.claims.seller_id,
-              subagentId: parsed.claims.subagent_id
+        const auth = parsed.claims?.responder_id
+          ? requireResponder(req, res, state, {
+              responderId: parsed.claims.responder_id,
+              hotlineId: parsed.claims.hotline_id
             })
           : requireAuth(req, res, state);
         if (!auth) {
           return;
         }
 
-        if (auth.type !== "seller") {
-          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only seller callers may introspect tokens");
+        if (auth.type !== "responder") {
+          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only responder callers may introspect tokens");
           return;
         }
 
@@ -1807,7 +2285,7 @@ export function createPlatformServer({
 
       const deliveryMetaMatch = pathname.match(/^\/v1\/requests\/([^/]+)\/delivery-meta$/);
       if (method === "POST" && deliveryMetaMatch) {
-        const auth = requireBuyer(req, res, state);
+        const auth = requireCaller(req, res, state);
         if (!auth) {
           return;
         }
@@ -1815,8 +2293,8 @@ export function createPlatformServer({
         const requestId = deliveryMetaMatch[1];
         const body = await parseJsonBody(req);
         const taskToken = body.task_token || body.token || null;
-        if (!body.seller_id || !body.subagent_id) {
-          sendError(res, 400, "CONTRACT_INVALID_DELIVERY_META_REQUEST", "seller_id and subagent_id are required");
+        if (!body.responder_id || !body.hotline_id) {
+          sendError(res, 400, "CONTRACT_INVALID_DELIVERY_META_REQUEST", "responder_id and hotline_id are required");
           return;
         }
         const normalizedResultDelivery = normalizeResultDelivery(body.result_delivery);
@@ -1830,13 +2308,13 @@ export function createPlatformServer({
           return;
         }
 
-        const catalogItem = state.catalog.get(body.subagent_id);
+        const catalogItem = state.catalog.get(body.hotline_id);
         if (
           !catalogItem ||
-          catalogItem.seller_id !== body.seller_id ||
+          catalogItem.responder_id !== body.responder_id ||
           resolveCatalogVisibility(state, catalogItem) !== "public"
         ) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found or not enabled");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found or not enabled");
           return;
         }
 
@@ -1848,9 +2326,9 @@ export function createPlatformServer({
           }
           if (
             parsed.claims.request_id !== requestId ||
-            parsed.claims.seller_id !== body.seller_id ||
-            parsed.claims.subagent_id !== body.subagent_id ||
-            parsed.claims.buyer_id !== auth.user_id
+            parsed.claims.responder_id !== body.responder_id ||
+            parsed.claims.hotline_id !== body.hotline_id ||
+            parsed.claims.caller_id !== auth.user_id
           ) {
             sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "token claims do not match request parameters");
             return;
@@ -1862,25 +2340,25 @@ export function createPlatformServer({
           sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
           return;
         }
-        if (request.buyer_id && request.buyer_id !== auth.user_id) {
-          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "request is owned by another buyer");
+        if (request.caller_id && request.caller_id !== auth.user_id) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "request is owned by another caller");
           return;
         }
-        if (request.seller_id && request.seller_id !== body.seller_id) {
-          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "seller_id does not match existing request");
+        if (request.responder_id && request.responder_id !== body.responder_id) {
+          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "responder_id does not match existing request");
           return;
         }
-        if (request.subagent_id && request.subagent_id !== body.subagent_id) {
-          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "subagent_id does not match existing request");
+        if (request.hotline_id && request.hotline_id !== body.hotline_id) {
+          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "hotline_id does not match existing request");
           return;
         }
-        request.buyer_id = auth.user_id;
-        request.seller_id = body.seller_id;
-        request.subagent_id = body.subagent_id;
+        request.caller_id = auth.user_id;
+        request.responder_id = body.responder_id;
+        request.hotline_id = body.hotline_id;
         request.request_kind ||= "remote_request";
         request.request_visibility ||= "public";
         createDeliveryMeta(state, request, catalogItem, normalizedResultDelivery);
-        appendRequestEvent(request, "DELIVERY_META_ISSUED", { actor_type: "buyer" });
+        appendRequestEvent(request, "DELIVERY_META_ISSUED", { actor_type: "caller" });
         await persistPlatformState(onStateChanged, state);
 
         sendJson(res, 200, request.delivery_meta);
@@ -1894,17 +2372,17 @@ export function createPlatformServer({
         if (!auth) {
           return;
         }
-        if (auth.type !== "seller") {
-          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only seller callers may ack requests");
+        if (auth.type !== "responder") {
+          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only responder callers may ack requests");
           return;
         }
         const body = await parseJsonBody(req);
-        if (!body.seller_id || !body.subagent_id) {
-          sendError(res, 400, "CONTRACT_INVALID_ACK_REQUEST", "seller_id and subagent_id are required");
+        if (!body.responder_id || !body.hotline_id) {
+          sendError(res, 400, "CONTRACT_INVALID_ACK_REQUEST", "responder_id and hotline_id are required");
           return;
         }
-        if (auth.seller_id !== body.seller_id || !auth.subagent_ids.includes(body.subagent_id)) {
-          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "caller does not own the specified seller or subagent");
+        if (auth.responder_id !== body.responder_id || !auth.hotline_ids.includes(body.hotline_id)) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "caller does not own the specified responder or hotline");
           return;
         }
 
@@ -1913,19 +2391,19 @@ export function createPlatformServer({
           sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
           return;
         }
-        if (request.seller_id && request.seller_id !== body.seller_id) {
-          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "seller_id does not match existing request");
+        if (request.responder_id && request.responder_id !== body.responder_id) {
+          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "responder_id does not match existing request");
           return;
         }
-        if (request.subagent_id && request.subagent_id !== body.subagent_id) {
-          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "subagent_id does not match existing request");
+        if (request.hotline_id && request.hotline_id !== body.hotline_id) {
+          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "hotline_id does not match existing request");
           return;
         }
-        request.seller_id = body.seller_id;
-        request.subagent_id = body.subagent_id;
-        if (!request.events.some((event) => event.event_type === "ACKED" && event.actor_type === "seller")) {
+        request.responder_id = body.responder_id;
+        request.hotline_id = body.hotline_id;
+        if (!request.events.some((event) => event.event_type === "ACKED" && event.actor_type === "responder")) {
           appendRequestEvent(request, "ACKED", {
-            actor_type: "seller",
+            actor_type: "responder",
             eta_hint_s: Number(body.eta_hint_s || 0)
           });
           await persistPlatformState(onStateChanged, state);
@@ -1942,18 +2420,18 @@ export function createPlatformServer({
         if (!auth) {
           return;
         }
-        if (auth.type !== "seller") {
-          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only seller callers may append request events");
+        if (auth.type !== "responder") {
+          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only responder callers may append request events");
           return;
         }
 
         const body = await parseJsonBody(req);
-        if (!body.seller_id || !body.subagent_id || !body.event_type) {
+        if (!body.responder_id || !body.hotline_id || !body.event_type) {
           sendError(
             res,
             400,
             "CONTRACT_INVALID_REQUEST_EVENT",
-            "seller_id, subagent_id, and event_type are required"
+            "responder_id, hotline_id, and event_type are required"
           );
           return;
         }
@@ -1966,8 +2444,8 @@ export function createPlatformServer({
           );
           return;
         }
-        if (auth.seller_id !== body.seller_id || !auth.subagent_ids.includes(body.subagent_id)) {
-          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "caller does not own the specified seller or subagent");
+        if (auth.responder_id !== body.responder_id || !auth.hotline_ids.includes(body.hotline_id)) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "caller does not own the specified responder or hotline");
           return;
         }
 
@@ -1976,22 +2454,22 @@ export function createPlatformServer({
           sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
           return;
         }
-        if (request.seller_id && request.seller_id !== body.seller_id) {
-          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "seller_id does not match existing request");
+        if (request.responder_id && request.responder_id !== body.responder_id) {
+          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "responder_id does not match existing request");
           return;
         }
-        if (request.subagent_id && request.subagent_id !== body.subagent_id) {
-          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "subagent_id does not match existing request");
+        if (request.hotline_id && request.hotline_id !== body.hotline_id) {
+          sendError(res, 409, "REQUEST_BINDING_MISMATCH", "hotline_id does not match existing request");
           return;
         }
 
-        request.seller_id = body.seller_id;
-        request.subagent_id = body.subagent_id;
+        request.responder_id = body.responder_id;
+        request.hotline_id = body.hotline_id;
 
         const existingEvent = findMatchingRequestEvent(request, {
           eventType: body.event_type,
-          sellerId: body.seller_id,
-          subagentId: body.subagent_id
+          responderId: body.responder_id,
+          hotlineId: body.hotline_id
         });
         if (existingEvent) {
           sendJson(res, 202, { accepted: true, request_id: requestId, event: existingEvent, deduped: true });
@@ -1999,9 +2477,9 @@ export function createPlatformServer({
         }
 
         appendRequestEvent(request, body.event_type, {
-          actor_type: "seller",
-          seller_id: body.seller_id,
-          subagent_id: body.subagent_id,
+          actor_type: "responder",
+          responder_id: body.responder_id,
+          hotline_id: body.hotline_id,
           status: body.status || (body.event_type === "FAILED" ? "error" : "ok"),
           error_code: body.error_code || null,
           finished_at: body.finished_at || nowIso()
@@ -2028,16 +2506,16 @@ export function createPlatformServer({
           sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
           return;
         }
-        if (auth.type === "buyer" && request.buyer_id !== auth.user_id) {
-          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "request is owned by another buyer");
+        if (auth.type === "caller" && request.caller_id !== auth.user_id) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "request is owned by another caller");
           return;
         }
         if (
-          auth.type === "seller" &&
-          (request.seller_id !== auth.seller_id ||
-            (request.subagent_id && !auth.subagent_ids.includes(request.subagent_id)))
+          auth.type === "responder" &&
+          (request.responder_id !== auth.responder_id ||
+            (request.hotline_id && !auth.hotline_ids.includes(request.hotline_id)))
         ) {
-          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "seller does not own this request");
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "responder does not own this request");
           return;
         }
 
@@ -2071,7 +2549,7 @@ export function createPlatformServer({
             });
             continue;
           }
-          if (auth.type === "buyer" && request.buyer_id !== auth.user_id) {
+          if (auth.type === "caller" && request.caller_id !== auth.user_id) {
             items.push({
               request_id: requestId,
               found: false
@@ -2079,8 +2557,8 @@ export function createPlatformServer({
             continue;
           }
           if (
-            auth.type === "seller" &&
-            (request.seller_id !== auth.seller_id || (request.subagent_id && !auth.subagent_ids.includes(request.subagent_id)))
+            auth.type === "responder" &&
+            (request.responder_id !== auth.responder_id || (request.hotline_id && !auth.hotline_ids.includes(request.hotline_id)))
           ) {
             items.push({
               request_id: requestId,
@@ -2100,27 +2578,27 @@ export function createPlatformServer({
         return;
       }
 
-      const heartbeatMatch = pathname.match(/^\/v1\/sellers\/([^/]+)\/heartbeat$/);
+      const heartbeatMatch = pathname.match(/^\/v1\/responders\/([^/]+)\/heartbeat$/);
       if (method === "POST" && heartbeatMatch) {
-        const sellerId = heartbeatMatch[1];
-        const auth = requireSeller(req, res, state, { sellerId });
+        const responderId = heartbeatMatch[1];
+        const auth = requireResponder(req, res, state, { responderId });
         if (!auth) {
           return;
         }
 
         const body = await parseJsonBody(req);
-        const seller = state.sellers.get(sellerId);
-        if (!seller) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+        const responder = state.responders.get(responderId);
+        if (!responder) {
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
 
         const heartbeatAt = nowIso();
-        seller.last_heartbeat_at = heartbeatAt;
-        seller.availability_status = body.status || "healthy";
+        responder.last_heartbeat_at = heartbeatAt;
+        responder.availability_status = body.status || "healthy";
 
         for (const item of state.catalog.values()) {
-          if (item.seller_id === sellerId) {
+          if (item.responder_id === responderId) {
             item.last_heartbeat_at = heartbeatAt;
             item.availability_status = body.status || "healthy";
           }
@@ -2129,8 +2607,8 @@ export function createPlatformServer({
 
         sendJson(res, 202, {
           accepted: true,
-          seller_id: sellerId,
-          status: seller.availability_status,
+          responder_id: responderId,
+          status: responder.availability_status,
           heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
           last_heartbeat_at: heartbeatAt
         });
@@ -2179,7 +2657,7 @@ export function createPlatformServer({
         return;
       }
 
-      if (method === "GET" && pathname === "/v1/admin/sellers") {
+      if (method === "GET" && pathname === "/v2/admin/responders") {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
@@ -2191,12 +2669,12 @@ export function createPlatformServer({
         const availabilityStatus = url.searchParams.get("availability_status");
         const ownerUserId = url.searchParams.get("owner_user_id");
 
-        const items = Array.from(state.sellers.values())
-          .map((seller) =>
-            buildSellerAdminSummary(
+        const items = Array.from(state.responders.values())
+          .map((responder) =>
+            buildResponderAdminSummary(
               state,
-              seller,
-              Array.from(state.catalog.values()).filter((item) => item.seller_id === seller.seller_id)
+              responder,
+              Array.from(state.catalog.values()).filter((item) => item.responder_id === responder.responder_id)
             )
           )
           .filter((item) => !status || item.status === status)
@@ -2208,7 +2686,7 @@ export function createPlatformServer({
         return;
       }
 
-      if (method === "GET" && pathname === "/v1/admin/subagents") {
+      if (method === "GET" && pathname === "/v2/admin/hotlines") {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
@@ -2218,7 +2696,7 @@ export function createPlatformServer({
         const status = url.searchParams.get("status");
         const reviewStatus = url.searchParams.get("review_status");
         const availabilityStatus = url.searchParams.get("availability_status");
-        const sellerId = url.searchParams.get("seller_id");
+        const responderId = url.searchParams.get("responder_id");
         const capability = url.searchParams.get("capability");
         const tag = url.searchParams.get("tag");
 
@@ -2232,7 +2710,7 @@ export function createPlatformServer({
           .filter((item) => !status || item.status === status)
           .filter((item) => !reviewStatus || item.review_status === reviewStatus)
           .filter((item) => !availabilityStatus || item.availability_status === availabilityStatus)
-          .filter((item) => !sellerId || item.seller_id === sellerId)
+          .filter((item) => !responderId || item.responder_id === responderId)
           .filter((item) => !capability || (item.capabilities || []).includes(capability))
           .filter((item) => !tag || (item.tags || []).includes(tag))
           .filter((item) => matchesQuery(item, q));
@@ -2247,16 +2725,16 @@ export function createPlatformServer({
         }
         const { limit, offset } = parsePagination(url);
         const q = url.searchParams.get("q");
-        const buyerId = url.searchParams.get("buyer_id");
-        const sellerId = url.searchParams.get("seller_id");
-        const subagentId = url.searchParams.get("subagent_id");
+        const callerId = url.searchParams.get("caller_id");
+        const responderId = url.searchParams.get("responder_id");
+        const hotlineId = url.searchParams.get("hotline_id");
         const eventType = url.searchParams.get("event_type");
 
         const items = Array.from(state.requests.values())
           .map(buildRequestAdminSummary)
-          .filter((item) => !buyerId || item.buyer_id === buyerId)
-          .filter((item) => !sellerId || item.seller_id === sellerId)
-          .filter((item) => !subagentId || item.subagent_id === subagentId)
+          .filter((item) => !callerId || item.caller_id === callerId)
+          .filter((item) => !responderId || item.responder_id === responderId)
+          .filter((item) => !hotlineId || item.hotline_id === hotlineId)
           .filter((item) => !eventType || item.latest_event?.event_type === eventType)
           .filter((item) => matchesQuery(item, q));
         sendJson(res, 200, paginateItems(items, { limit, offset }));
@@ -2292,15 +2770,15 @@ export function createPlatformServer({
         }
         const { limit, offset } = parsePagination(url);
         const q = url.searchParams.get("q");
-        const sellerId = url.searchParams.get("seller_id");
-        const subagentId = url.searchParams.get("subagent_id");
+        const responderId = url.searchParams.get("responder_id");
+        const hotlineId = url.searchParams.get("hotline_id");
         const status = url.searchParams.get("status");
         const verdict = url.searchParams.get("verdict");
 
         const items = Array.from(state.reviewTests.values())
           .map(summarizeReviewTest)
-          .filter((item) => !sellerId || item?.seller_id === sellerId)
-          .filter((item) => !subagentId || item?.subagent_id === subagentId)
+          .filter((item) => !responderId || item?.responder_id === responderId)
+          .filter((item) => !hotlineId || item?.hotline_id === hotlineId)
           .filter((item) => !status || item?.status === status)
           .filter((item) => !verdict || item?.verdict === verdict)
           .filter((item) => matchesQuery(item, q));
@@ -2351,13 +2829,13 @@ export function createPlatformServer({
         return;
       }
 
-      const buyerKeyRotateMatch = pathname.match(/^\/v1\/admin\/users\/([^/]+)\/api-keys\/rotate$/);
-      if (method === "POST" && buyerKeyRotateMatch) {
+      const callerKeyRotateMatch = pathname.match(/^\/v1\/admin\/users\/([^/]+)\/api-keys\/rotate$/);
+      if (method === "POST" && callerKeyRotateMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
-        const rotated = rotateBuyerApiKey(state, buyerKeyRotateMatch[1]);
+        const rotated = rotateCallerApiKey(state, callerKeyRotateMatch[1]);
         if (!rotated) {
           sendError(res, 404, "USER_NOT_FOUND", "no user found with this id");
           return;
@@ -2368,40 +2846,40 @@ export function createPlatformServer({
         return;
       }
 
-      const sellerKeyRotateMatch = pathname.match(/^\/v1\/admin\/sellers\/([^/]+)\/api-keys\/rotate$/);
-      if (method === "POST" && sellerKeyRotateMatch) {
+      const responderKeyRotateMatch = pathname.match(/^\/v1\/admin\/responders\/([^/]+)\/api-keys\/rotate$/);
+      if (method === "POST" && responderKeyRotateMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
-        const rotated = rotateSellerApiKey(state, sellerKeyRotateMatch[1]);
+        const rotated = rotateResponderApiKey(state, responderKeyRotateMatch[1]);
         if (!rotated) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
-        appendAuditEvent(state, auth, "seller.api_key.rotated", { type: "seller", id: rotated.seller_id });
+        appendAuditEvent(state, auth, "responder.api_key.rotated", { type: "responder", id: rotated.responder_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, rotated);
         return;
       }
 
-      const sellerSigningRotateMatch = pathname.match(/^\/v1\/admin\/sellers\/([^/]+)\/signing-keys\/rotate$/);
-      if (method === "POST" && sellerSigningRotateMatch) {
+      const responderSigningRotateMatch = pathname.match(/^\/v1\/admin\/responders\/([^/]+)\/signing-keys\/rotate$/);
+      if (method === "POST" && responderSigningRotateMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
-        const rotated = rotateSellerSigningKey(state, sellerSigningRotateMatch[1], body);
+        const rotated = rotateResponderSigningKey(state, responderSigningRotateMatch[1], body);
         if (!rotated) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
         if (rotated.error) {
           sendJson(res, rotated.statusCode || 400, { error: rotated.error });
           return;
         }
-        appendAuditEvent(state, auth, "seller.signing_key.rotated", { type: "seller", id: rotated.seller_id }, {
+        appendAuditEvent(state, auth, "responder.signing_key.rotated", { type: "responder", id: rotated.responder_id }, {
           rotation_window_until: rotated.rotation_window_until
         });
         await persistPlatformState(onStateChanged, state);
@@ -2424,13 +2902,13 @@ export function createPlatformServer({
           sendError(res, 404, "AUTH_KEY_NOT_FOUND", "api key was not found");
           return;
         }
-        appendAuditEvent(state, auth, "api_key.revoked", { type: revoked.type || "api_key", id: revoked.user_id || revoked.seller_id || "unknown" });
+        appendAuditEvent(state, auth, "api_key.revoked", { type: revoked.type || "api_key", id: revoked.user_id || revoked.responder_id || "unknown" });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
           revoked: true,
           type: revoked.type,
           user_id: revoked.user_id || null,
-          seller_id: revoked.seller_id || null
+          responder_id: revoked.responder_id || null
         });
         return;
       }
@@ -2457,7 +2935,7 @@ export function createPlatformServer({
         return;
       }
 
-      const adminReviewTestCreateMatch = pathname.match(/^\/v1\/admin\/subagents\/([^/]+)\/review-tests$/);
+      const adminReviewTestCreateMatch = pathname.match(/^\/v1\/admin\/hotlines\/([^/]+)\/review-tests$/);
       if (method === "POST" && adminReviewTestCreateMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
@@ -2466,7 +2944,7 @@ export function createPlatformServer({
         const body = await parseJsonBody(req);
         const item = state.catalog.get(adminReviewTestCreateMatch[1]);
         if (!item) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
         if (!item.task_delivery_address?.startsWith("local://")) {
@@ -2493,17 +2971,17 @@ export function createPlatformServer({
         const taskInput = body.task_input || {};
         const constraints = body.constraints || null;
         const request = getOrCreateRequest(state, requestId);
-        request.buyer_id = REVIEW_TEST_BUYER_ID;
-        request.seller_id = item.seller_id;
-        request.subagent_id = item.subagent_id;
+        request.caller_id = REVIEW_TEST_CALLER_ID;
+        request.responder_id = item.responder_id;
+        request.hotline_id = item.hotline_id;
         request.request_kind = "review_test";
         request.request_visibility = "hidden";
 
         const issued = createTaskClaims(state, {
-          buyerId: REVIEW_TEST_BUYER_ID,
+          callerId: REVIEW_TEST_CALLER_ID,
           requestId,
-          sellerId: item.seller_id,
-          subagentId: item.subagent_id,
+          responderId: item.responder_id,
+          hotlineId: item.hotline_id,
           requestKind: "review_test"
         });
         const resultDelivery = {
@@ -2516,8 +2994,8 @@ export function createPlatformServer({
 
         const reviewTest = {
           request_id: requestId,
-          seller_id: item.seller_id,
-          subagent_id: item.subagent_id,
+          responder_id: item.responder_id,
+          hotline_id: item.hotline_id,
           status: "running",
           verdict: null,
           failure_code: null,
@@ -2533,12 +3011,12 @@ export function createPlatformServer({
         };
         state.reviewTests.set(requestId, reviewTest);
 
-        const submission = state.submissions.get(item.subagent_id);
+        const submission = state.submissions.get(item.hotline_id);
         if (submission) {
           submission.latest_review_test_request_id = requestId;
         }
 
-        appendAuditEvent(state, auth, "review_test.started", { type: "subagent", id: item.subagent_id }, { request_id: requestId });
+        appendAuditEvent(state, auth, "review_test.started", { type: "hotline", id: item.hotline_id }, { request_id: requestId });
         await persistPlatformState(onStateChanged, state);
 
         void runReviewTestHarness(state, reviewTest, request, transport, onStateChanged)
@@ -2547,7 +3025,7 @@ export function createPlatformServer({
               state,
               auth,
               "review_test.completed",
-              { type: "subagent", id: item.subagent_id },
+              { type: "hotline", id: item.hotline_id },
               {
                 request_id: requestId,
                 verdict: reviewTest.verdict,
@@ -2566,7 +3044,7 @@ export function createPlatformServer({
               state,
               auth,
               "review_test.completed",
-              { type: "subagent", id: item.subagent_id },
+              { type: "hotline", id: item.hotline_id },
               {
                 request_id: requestId,
                 verdict: reviewTest.verdict,
@@ -2578,141 +3056,141 @@ export function createPlatformServer({
 
         sendJson(res, 202, {
           request_id: requestId,
-          seller_id: item.seller_id,
-          subagent_id: item.subagent_id,
+          responder_id: item.responder_id,
+          hotline_id: item.hotline_id,
           status: reviewTest.status
         });
         return;
       }
 
-      const adminSellerDisableMatch = pathname.match(/^\/v1\/admin\/sellers\/([^/]+)\/disable$/);
-      if (method === "POST" && adminSellerDisableMatch) {
+      const adminResponderDisableMatch = pathname.match(/^\/v2\/admin\/responders\/([^/]+)\/disable$/);
+      if (method === "POST" && adminResponderDisableMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
 
-        const seller = state.sellers.get(adminSellerDisableMatch[1]);
-        if (!seller) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+        const responder = state.responders.get(adminResponderDisableMatch[1]);
+        if (!responder) {
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
-        seller.status = "disabled";
-        appendAuditEvent(state, auth, "seller.disabled", { type: "seller", id: seller.seller_id }, { reason: body.reason || null });
+        responder.status = "disabled";
+        appendAuditEvent(state, auth, "responder.disabled", { type: "responder", id: responder.responder_id }, { reason: body.reason || null });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          seller_id: seller.seller_id,
-          status: seller.status,
-          review_status: seller.review_status,
+          responder_id: responder.responder_id,
+          status: responder.status,
+          review_status: responder.review_status,
           catalog_visibility: "hidden"
         });
         return;
       }
 
-      const adminSellerApproveMatch = pathname.match(/^\/v1\/admin\/sellers\/([^/]+)\/approve$/);
-      if (method === "POST" && adminSellerApproveMatch) {
+      const adminResponderApproveMatch = pathname.match(/^\/v2\/admin\/responders\/([^/]+)\/approve$/);
+      if (method === "POST" && adminResponderApproveMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
 
-        const seller = state.sellers.get(adminSellerApproveMatch[1]);
-        if (!seller) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+        const responder = state.responders.get(adminResponderApproveMatch[1]);
+        if (!responder) {
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
-        seller.review_status = "approved";
-        seller.status = "enabled";
-        seller.reviewed_at = nowIso();
-        seller.reviewed_by = describeActor(auth).actor_id;
-        seller.review_reason = body.reason || null;
-        appendAuditEvent(state, auth, "seller.approved", { type: "seller", id: seller.seller_id }, { reason: body.reason || null });
-        appendReviewEvent(state, auth, "approved", { type: "seller", id: seller.seller_id }, { reason: body.reason || null, seller_id: seller.seller_id });
+        responder.review_status = "approved";
+        responder.status = "enabled";
+        responder.reviewed_at = nowIso();
+        responder.reviewed_by = describeActor(auth).actor_id;
+        responder.review_reason = body.reason || null;
+        appendAuditEvent(state, auth, "responder.approved", { type: "responder", id: responder.responder_id }, { reason: body.reason || null });
+        appendReviewEvent(state, auth, "approved", { type: "responder", id: responder.responder_id }, { reason: body.reason || null, responder_id: responder.responder_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          seller_id: seller.seller_id,
-          status: seller.status,
-          review_status: seller.review_status
+          responder_id: responder.responder_id,
+          status: responder.status,
+          review_status: responder.review_status
         });
         return;
       }
 
-      const adminSellerRejectMatch = pathname.match(/^\/v1\/admin\/sellers\/([^/]+)\/reject$/);
-      if (method === "POST" && adminSellerRejectMatch) {
+      const adminResponderRejectMatch = pathname.match(/^\/v2\/admin\/responders\/([^/]+)\/reject$/);
+      if (method === "POST" && adminResponderRejectMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
 
-        const seller = state.sellers.get(adminSellerRejectMatch[1]);
-        if (!seller) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+        const responder = state.responders.get(adminResponderRejectMatch[1]);
+        if (!responder) {
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
-        seller.review_status = "rejected";
-        seller.status = "disabled";
-        seller.reviewed_at = nowIso();
-        seller.reviewed_by = describeActor(auth).actor_id;
-        seller.review_reason = body.reason || null;
-        appendAuditEvent(state, auth, "seller.rejected", { type: "seller", id: seller.seller_id }, { reason: body.reason || null });
-        appendReviewEvent(state, auth, "rejected", { type: "seller", id: seller.seller_id }, { reason: body.reason || null, seller_id: seller.seller_id });
+        responder.review_status = "rejected";
+        responder.status = "disabled";
+        responder.reviewed_at = nowIso();
+        responder.reviewed_by = describeActor(auth).actor_id;
+        responder.review_reason = body.reason || null;
+        appendAuditEvent(state, auth, "responder.rejected", { type: "responder", id: responder.responder_id }, { reason: body.reason || null });
+        appendReviewEvent(state, auth, "rejected", { type: "responder", id: responder.responder_id }, { reason: body.reason || null, responder_id: responder.responder_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          seller_id: seller.seller_id,
-          status: seller.status,
-          review_status: seller.review_status,
+          responder_id: responder.responder_id,
+          status: responder.status,
+          review_status: responder.review_status,
           catalog_visibility: "hidden"
         });
         return;
       }
 
-      const adminSellerEnableMatch = pathname.match(/^\/v1\/admin\/sellers\/([^/]+)\/enable$/);
-      if (method === "POST" && adminSellerEnableMatch) {
+      const adminResponderEnableMatch = pathname.match(/^\/v2\/admin\/responders\/([^/]+)\/enable$/);
+      if (method === "POST" && adminResponderEnableMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
-        const seller = state.sellers.get(adminSellerEnableMatch[1]);
-        if (!seller) {
-          sendError(res, 404, "SELLER_NOT_FOUND", "no seller found with this id");
+        const responder = state.responders.get(adminResponderEnableMatch[1]);
+        if (!responder) {
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
           return;
         }
-        if (seller.review_status !== "approved") {
-          sendError(res, 409, "SELLER_NOT_APPROVED", "seller must be approved before it can be enabled");
+        if (responder.review_status !== "approved") {
+          sendError(res, 409, "RESPONDER_NOT_APPROVED", "responder must be approved before it can be enabled");
           return;
         }
-        seller.status = "enabled";
-        appendAuditEvent(state, auth, "seller.enabled", { type: "seller", id: seller.seller_id });
+        responder.status = "enabled";
+        appendAuditEvent(state, auth, "responder.enabled", { type: "responder", id: responder.responder_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          seller_id: seller.seller_id,
-          status: seller.status,
-          review_status: seller.review_status
+          responder_id: responder.responder_id,
+          status: responder.status,
+          review_status: responder.review_status
         });
         return;
       }
 
-      const adminSubagentDisableMatch = pathname.match(/^\/v1\/admin\/subagents\/([^/]+)\/disable$/);
-      if (method === "POST" && adminSubagentDisableMatch) {
+      const adminHotlineDisableMatch = pathname.match(/^\/v2\/admin\/hotlines\/([^/]+)\/disable$/);
+      if (method === "POST" && adminHotlineDisableMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
 
-        const item = state.catalog.get(adminSubagentDisableMatch[1]);
+        const item = state.catalog.get(adminHotlineDisableMatch[1]);
         if (!item) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
         item.status = "disabled";
-        appendAuditEvent(state, auth, "subagent.disabled", { type: "subagent", id: item.subagent_id }, { reason: body.reason || null });
+        appendAuditEvent(state, auth, "hotline.disabled", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          subagent_id: item.subagent_id,
+          hotline_id: item.hotline_id,
           status: item.status,
           review_status: item.review_status,
           catalog_visibility: resolveCatalogVisibility(state, item)
@@ -2720,17 +3198,17 @@ export function createPlatformServer({
         return;
       }
 
-      const adminSubagentApproveMatch = pathname.match(/^\/v1\/admin\/subagents\/([^/]+)\/approve$/);
-      if (method === "POST" && adminSubagentApproveMatch) {
+      const adminHotlineApproveMatch = pathname.match(/^\/v2\/admin\/hotlines\/([^/]+)\/approve$/);
+      if (method === "POST" && adminHotlineApproveMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
 
-        const item = state.catalog.get(adminSubagentApproveMatch[1]);
+        const item = state.catalog.get(adminHotlineApproveMatch[1]);
         if (!item) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
         item.review_status = "approved";
@@ -2738,11 +3216,11 @@ export function createPlatformServer({
         item.reviewed_at = nowIso();
         item.reviewed_by = describeActor(auth).actor_id;
         item.review_reason = body.reason || null;
-        appendAuditEvent(state, auth, "subagent.approved", { type: "subagent", id: item.subagent_id }, { reason: body.reason || null });
-        appendReviewEvent(state, auth, "approved", { type: "subagent", id: item.subagent_id }, { reason: body.reason || null, seller_id: item.seller_id, subagent_id: item.subagent_id });
+        appendAuditEvent(state, auth, "hotline.approved", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null });
+        appendReviewEvent(state, auth, "approved", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null, responder_id: item.responder_id, hotline_id: item.hotline_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          subagent_id: item.subagent_id,
+          hotline_id: item.hotline_id,
           status: item.status,
           review_status: item.review_status,
           catalog_visibility: resolveCatalogVisibility(state, item)
@@ -2750,17 +3228,17 @@ export function createPlatformServer({
         return;
       }
 
-      const adminSubagentRejectMatch = pathname.match(/^\/v1\/admin\/subagents\/([^/]+)\/reject$/);
-      if (method === "POST" && adminSubagentRejectMatch) {
+      const adminHotlineRejectMatch = pathname.match(/^\/v2\/admin\/hotlines\/([^/]+)\/reject$/);
+      if (method === "POST" && adminHotlineRejectMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
         const body = await parseJsonBody(req);
 
-        const item = state.catalog.get(adminSubagentRejectMatch[1]);
+        const item = state.catalog.get(adminHotlineRejectMatch[1]);
         if (!item) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
         item.review_status = "rejected";
@@ -2768,11 +3246,11 @@ export function createPlatformServer({
         item.reviewed_at = nowIso();
         item.reviewed_by = describeActor(auth).actor_id;
         item.review_reason = body.reason || null;
-        appendAuditEvent(state, auth, "subagent.rejected", { type: "subagent", id: item.subagent_id }, { reason: body.reason || null });
-        appendReviewEvent(state, auth, "rejected", { type: "subagent", id: item.subagent_id }, { reason: body.reason || null, seller_id: item.seller_id, subagent_id: item.subagent_id });
+        appendAuditEvent(state, auth, "hotline.rejected", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null });
+        appendReviewEvent(state, auth, "rejected", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null, responder_id: item.responder_id, hotline_id: item.hotline_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          subagent_id: item.subagent_id,
+          hotline_id: item.hotline_id,
           status: item.status,
           review_status: item.review_status,
           catalog_visibility: resolveCatalogVisibility(state, item)
@@ -2780,26 +3258,26 @@ export function createPlatformServer({
         return;
       }
 
-      const adminSubagentEnableMatch = pathname.match(/^\/v1\/admin\/subagents\/([^/]+)\/enable$/);
-      if (method === "POST" && adminSubagentEnableMatch) {
+      const adminHotlineEnableMatch = pathname.match(/^\/v2\/admin\/hotlines\/([^/]+)\/enable$/);
+      if (method === "POST" && adminHotlineEnableMatch) {
         const auth = requireOperator(req, res, state);
         if (!auth) {
           return;
         }
-        const item = state.catalog.get(adminSubagentEnableMatch[1]);
+        const item = state.catalog.get(adminHotlineEnableMatch[1]);
         if (!item) {
-          sendError(res, 404, "CATALOG_SUBAGENT_NOT_FOUND", "subagent not found in catalog");
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
           return;
         }
         if (item.review_status !== "approved") {
-          sendError(res, 409, "SUBAGENT_NOT_APPROVED", "subagent must be approved before it can be enabled");
+          sendError(res, 409, "HOTLINE_NOT_APPROVED", "hotline must be approved before it can be enabled");
           return;
         }
         item.status = "enabled";
-        appendAuditEvent(state, auth, "subagent.enabled", { type: "subagent", id: item.subagent_id });
+        appendAuditEvent(state, auth, "hotline.enabled", { type: "hotline", id: item.hotline_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
-          subagent_id: item.subagent_id,
+          hotline_id: item.hotline_id,
           status: item.status,
           review_status: item.review_status,
           catalog_visibility: resolveCatalogVisibility(state, item)

@@ -3,7 +3,7 @@
 This checklist tracks the remaining work before the current implementation can be considered fully closed as a productized, deployable baseline.
 
 补充口径：
-- 当前仓库已经可以作为 `Protocol v0.1 + Buyer/Seller/Platform 参考实现 + local transport 双端示例` 发布基线。
+- 当前仓库已经可以作为 `Protocol v0.1 + Caller/Responder/Platform 参考实现 + local transport 双端示例` 发布基线。
 - 本清单中的剩余项针对的是“productized, deployable baseline”意义上的当前版本完全收官，而不是首版协议闭环是否成立。
 
 ## Status Key
@@ -14,20 +14,20 @@ This checklist tracks the remaining work before the current implementation can b
 
 ## Deployment And Distribution
 
-- `done` independent deployment profiles for `platform`, `relay`, `buyer`, `seller`, `ops`, and `all-in-one`
+- `done` independent deployment profiles for `platform`, `relay`, `caller`, `responder`, `ops`, and `all-in-one`
 - `done` unified end-user package shape through `deploy/ops`
-- `done` seller end-user install path defined as repo-local `npm run ops -- ...`, separate from Docker deployment profiles
+- `done` responder end-user install path defined as repo-local `npm run ops -- ...`, separate from Docker deployment profiles
 - `partial` real deployment transport relay is wired, and compose smoke now classifies network, registry-auth, and image pull failures better, but strict smoke still depends on external image pull stability
 - `done` registry publish workflow for versioned images
 - `done` released image compatibility matrix and release notes discipline
 
 ## Identity And Access
 
-- `done` buyer registration
-- `done` seller registration
-- `done` buyer can enable seller role on the same user path
+- `done` caller registration
+- `done` responder registration
+- `done` caller can enable responder role on the same user path
 - `done` admin key and admin role gating for platform operations
-- `done` local API-key bootstrap command that writes buyer credentials into `.env.local`
+- `done` local API-key bootstrap command that writes caller credentials into `.env.local`
 - `partial` role model exists, but is still minimal and not yet fully productized
 - `done` basic local login/session flow for `ops-console` through passphrase-backed supervisor sessions
 - `done` browser no longer stores platform admin key directly; `platform-console` now uses a local gateway with its own short-lived session
@@ -36,8 +36,8 @@ This checklist tracks the remaining work before the current implementation can b
 
 ## Platform Operations
 
-- `done` seller/subagent admin listing
-- `done` seller/subagent approve, reject, enable, and disable actions
+- `done` responder/hotline admin listing
+- `done` responder/hotline approve, reject, enable, and disable actions
 - `done` request admin listing
 - `done` audit trail for role, review, and disable actions
 - `done` review queue endpoint and console view
@@ -46,24 +46,24 @@ This checklist tracks the remaining work before the current implementation can b
 - `done` approval lifecycle moved into review records instead of resource status
 - `partial` approval history UX can still be deepened, but the core reviewer notes, guidance, and history workflow is in place
 
-## Buyer And Seller Operations
+## Caller And Responder Operations
 
-- `done` buyer remote request entrypoint
-- `done` buyer background inbox and event sync loops
-- `done` seller background inbox and heartbeat loops
-- `done` buyer/seller shared console MVP
-- `done` ops console supports registration, seller enablement, dispatch, setup wizard guidance, and richer result/runtime views
-- `done` seller local config path established at `~/.delexec`
-- `done` unified ops client exists for setup/start/status/add-subagent/submit-review/enable-seller/doctor
-- `done` local supervisor exists and manages buyer, seller, and relay in the end-user path
+- `done` caller remote request entrypoint
+- `done` caller background inbox and event sync loops
+- `done` responder background inbox and heartbeat loops
+- `done` caller/responder shared console MVP
+- `done` ops console supports registration, responder enablement, dispatch, setup wizard guidance, and richer result/runtime views
+- `done` responder local config path established at `~/.delexec`
+- `done` unified ops client exists for setup/start/status/add-hotline/submit-review/enable-responder/doctor
+- `done` local supervisor exists and manages caller, responder, and relay in the end-user path
 - `done` richer request timeline and result views
-- `done` onboarding wizard that guides local runtime setup and seller enablement
-- `done` editable seller/subagent profile management exists through both CLI and UI
+- `done` onboarding wizard that guides local runtime setup and responder enablement
+- `done` editable responder/hotline profile management exists through both CLI and UI
 
 ## Search And Discovery
 
 - `done` catalog filters for `task_type`, `capability`, and `tag`
-- `done` public catalog defaults to enabled subagents only
+- `done` public catalog defaults to enabled hotlines only
 - `partial` search exists, but candidate ranking is still basic
 - `todo` ranking by availability, success rate, latency, trust, and cost hints
 - `todo` richer search dimensions such as domain, input mode, and compliance tags

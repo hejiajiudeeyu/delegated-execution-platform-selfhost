@@ -6,7 +6,7 @@
 本清单用于跟踪：在当前实现被视为“产品化、可部署基线”之前仍需完成的工作。
 
 补充口径：
-- 当前仓库已经可以作为 `Protocol v0.1 + Buyer/Seller/Platform 参考实现 + local transport 双端示例` 的发布基线。
+- 当前仓库已经可以作为 `Protocol v0.1 + Caller/Responder/Platform 参考实现 + local transport 双端示例` 的发布基线。
 - 本清单剩余项面向“productized, deployable baseline”意义上的完全收官，不等同于首版协议闭环是否成立。
 
 ## 状态标记
@@ -17,20 +17,20 @@
 
 ## 部署与分发
 
-- `done`：`platform`、`relay`、`buyer`、`seller`、`ops`、`all-in-one` 的独立部署 profile
+- `done`：`platform`、`relay`、`caller`、`responder`、`ops`、`all-in-one` 的独立部署 profile
 - `done`：通过 `deploy/ops` 形成统一的终端用户包形态
-- `done`：seller 终端用户安装路径定义为仓库内 `npm run ops -- ...`，与 Docker 部署 profile 分离
+- `done`：responder 终端用户安装路径定义为仓库内 `npm run ops -- ...`，与 Docker 部署 profile 分离
 - `partial`：真实部署 relay 已接线，compose smoke 对网络/镜像仓库鉴权/镜像拉取失败分类更好，但严格冒烟仍依赖外部镜像拉取稳定性
 - `done`：版本化镜像的 registry 发布工作流
 - `done`：已发布镜像兼容矩阵与发布说明纪律
 
 ## 身份与访问控制
 
-- `done`：buyer 注册
-- `done`：seller 注册
-- `done`：buyer 可在同一用户路径启用 seller 角色
+- `done`：caller 注册
+- `done`：responder 注册
+- `done`：caller 可在同一用户路径启用 responder 角色
 - `done`：平台操作的 admin key 与 admin 角色门控
-- `done`：本地 API-key bootstrap 命令可将 buyer 凭据写入 `.env.local`
+- `done`：本地 API-key bootstrap 命令可将 caller 凭据写入 `.env.local`
 - `partial`：角色模型已存在，但仍是最小实现，尚未完全产品化
 - `done`：`ops-console` 已有基于口令的本地登录/会话流
 - `done`：浏览器不再直接存储平台 admin key；`platform-console` 改为使用本地 gateway 与短期会话
@@ -39,8 +39,8 @@
 
 ## 平台运维能力
 
-- `done`：seller/subagent 管理员列表
-- `done`：seller/subagent 的 approve/reject/enable/disable 操作
+- `done`：responder/hotline 管理员列表
+- `done`：responder/hotline 的 approve/reject/enable/disable 操作
 - `done`：request 管理员列表
 - `done`：角色、审核、禁用动作审计轨迹
 - `done`：审核队列端点与控制台视图
@@ -49,24 +49,24 @@
 - `done`：审批生命周期迁移至 review records，而非资源状态本身
 - `partial`：审批历史 UX 仍可加强，但 reviewer 备注、指引与历史工作流已就位
 
-## Buyer 与 Seller 运维能力
+## Caller 与 Responder 运维能力
 
-- `done`：buyer 远程请求入口
-- `done`：buyer 后台收件与事件同步循环
-- `done`：seller 后台收件与心跳循环
-- `done`：buyer/seller 共享控制台 MVP
-- `done`：ops console 支持注册、seller 启用、dispatch、setup wizard 指引及更丰富结果/运行时视图
-- `done`：seller 本地配置路径 `~/.delexec`
-- `done`：统一 ops 客户端支持 setup/start/status/add-subagent/submit-review/enable-seller/doctor
-- `done`：本地 supervisor 可管理终端用户路径中的 buyer、seller、relay
+- `done`：caller 远程请求入口
+- `done`：caller 后台收件与事件同步循环
+- `done`：responder 后台收件与心跳循环
+- `done`：caller/responder 共享控制台 MVP
+- `done`：ops console 支持注册、responder 启用、dispatch、setup wizard 指引及更丰富结果/运行时视图
+- `done`：responder 本地配置路径 `~/.delexec`
+- `done`：统一 ops 客户端支持 setup/start/status/add-hotline/submit-review/enable-responder/doctor
+- `done`：本地 supervisor 可管理终端用户路径中的 caller、responder、relay
 - `done`：更丰富的 request 时间线与结果视图
-- `done`：引导本地运行时 setup 与 seller 启用的 onboarding wizard
-- `done`：CLI 与 UI 均支持可编辑的 seller/subagent 资料管理
+- `done`：引导本地运行时 setup 与 responder 启用的 onboarding wizard
+- `done`：CLI 与 UI 均支持可编辑的 responder/hotline 资料管理
 
 ## 搜索与发现
 
 - `done`：目录支持 `task_type`、`capability`、`tag` 过滤
-- `done`：公开目录默认只展示已启用 subagent
+- `done`：公开目录默认只展示已启用 hotline
 - `partial`：已具备搜索，但候选排序仍较基础
 - `todo`：按可用性、成功率、时延、信任与成本提示做排序
 - `todo`：更丰富搜索维度（领域、输入模式、合规标签）

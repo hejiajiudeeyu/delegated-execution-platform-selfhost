@@ -1,11 +1,28 @@
+function entityLabels(type) {
+  return type === "responders"
+    ? { plural: "Responders", singular: "Responder", idLabel: "Responder ID" }
+    : { plural: "Hotlines", singular: "Hotline", idLabel: "Hotline ID" };
+}
+
+function targetTypeLabel(targetType) {
+  if (targetType === "responder") {
+    return "responder";
+  }
+  if (targetType === "hotline") {
+    return "hotline";
+  }
+  return targetType || "target";
+}
+
 export function renderEntityCardsMarkup(items, type) {
+  const labels = entityLabels(type);
   if (!Array.isArray(items) || items.length === 0) {
-    return `<div class="empty">No ${type} found.</div>`;
+    return `<div class="empty">No ${labels.plural.toLowerCase()} found.</div>`;
   }
 
   return items
     .map((item) => {
-      const id = type === "sellers" ? item.seller_id : item.subagent_id;
+      const id = type === "responders" ? item.responder_id : item.hotline_id;
       const status = item.status || item.availability_status || "unknown";
       const reviewStatus = item.review_status || "pending";
       const latestReviewTest = item.latest_review_test;
@@ -24,22 +41,22 @@ export function renderEntityCardsMarkup(items, type) {
           <div class="item-head">
             <div>
               <strong>${id}</strong>
-              <p>${type === "sellers" ? item.contact_email || "no contact email" : item.display_name || "unnamed subagent"}</p>
+              <p>${type === "responders" ? item.contact_email || "no contact email" : item.display_name || "unnamed hotline"}</p>
             </div>
             <span class="status ${status}">${status}</span>
           </div>
           <p class="meta">
             Review: ${reviewStatus}
             ${
-              type === "sellers"
-                ? ` · ${item.subagent_count} subagents`
-                : ` · ${item.catalog_visibility || "hidden"} · v${item.submission_version || 1}`
+              type === "responders"
+                ? ` · ${item.hotline_count} hotline runtime(s)`
+                : ` · ${item.catalog_visibility || "hidden"} · Hotline v${item.submission_version || 1}`
             }
           </p>
           ${
-            type === "subagents" && latestReviewTest
+            type === "hotlines" && latestReviewTest
               ? `<p class="meta">Latest review test: ${latestReviewTest.verdict || latestReviewTest.status}${latestReviewTest.failure_code ? ` · ${latestReviewTest.failure_code}` : ""}</p>`
-              : `<p class="meta">${type === "sellers" ? (item.subagents || []).map((subagent) => subagent.subagent_id).join(", ") || "no subagents" : `${(item.capabilities || []).join(", ") || "no capabilities"}`}</p>`
+              : `<p class="meta">${type === "responders" ? (item.hotlines || []).map((hotline) => hotline.hotline_id).join(", ") || "no hotline runtimes" : `${(item.capabilities || []).join(", ") || "no capabilities"}`}</p>`
           }
           <div class="actions">
             ${actions}
@@ -61,11 +78,11 @@ export function renderAdminRequestCardsMarkup(items) {
           <div class="item-head">
             <div>
               <strong>${item.request_id}</strong>
-              <p>${item.seller_id || "unbound seller"} · ${item.subagent_id || "unbound subagent"}</p>
+              <p>${item.responder_id || "unbound responder"} · ${item.hotline_id || "unbound hotline runtime"}</p>
             </div>
             <span class="status ${String(item.latest_event?.event_type || "created").toLowerCase()}">${item.latest_event?.event_type || "CREATED"}</span>
           </div>
-          <p class="meta">Events: ${item.event_count} · Buyer: ${item.buyer_id || "n/a"}</p>
+          <p class="meta">Events: ${item.event_count} · Caller: ${item.caller_id || "n/a"}</p>
         </article>
       `
     )
@@ -83,7 +100,7 @@ export function renderAuditCardsMarkup(items) {
           <div class="item-head">
             <div>
               <strong>${item.action}</strong>
-              <p>${item.target_type}:${item.target_id}</p>
+              <p>${targetTypeLabel(item.target_type)}:${item.target_id}</p>
             </div>
             <span class="status active">${item.actor_type}</span>
           </div>
@@ -104,7 +121,7 @@ export function renderReviewCardsMarkup(items) {
         <article class="item-card" data-detail-type="reviews" data-detail-id="${item.id}">
           <div class="item-head">
             <div>
-              <strong>${item.target_type}:${item.target_id}</strong>
+              <strong>${targetTypeLabel(item.target_type)}:${item.target_id}</strong>
               <p>${item.review_status}${item.reason ? ` · ${item.reason}` : ""}</p>
             </div>
             <span class="status ${item.review_status}">${item.review_status}</span>
@@ -175,9 +192,9 @@ export function renderHistorySummary(items, title) {
 
 export function renderReviewerGuidance(item) {
   if (!item) {
-    return `<div class="empty">Select a seller or subagent to see reviewer guidance.</div>`;
+    return `<div class="empty">Select a Responder or Hotline to see reviewer guidance.</div>`;
   }
-  const target = item.subagent_id || item.seller_id || item.target_id || "selected item";
+  const target = item.hotline_id || item.responder_id || item.target_id || "selected item";
   const status = item.review_status || item.status || "unknown";
   const hints = [];
   if (item.status === "disabled" && item.review_status === "approved") {
@@ -213,7 +230,7 @@ export function renderReviewerGuidance(item) {
 
 export function renderReviewActionSummary(item, reviewerNotes = "", history = []) {
   if (!item) {
-    return `<div class="empty">Select a seller or subagent to see suggested review actions.</div>`;
+    return `<div class="empty">Select a Responder or Hotline to see suggested review actions.</div>`;
   }
   const status = item.status || "unknown";
   const latestReason = history.find((entry) => entry.reason)?.reason || "No prior reason recorded.";
@@ -224,7 +241,7 @@ export function renderReviewActionSummary(item, reviewerNotes = "", history = []
       <div class="item-head">
         <div>
           <strong>Review Action Summary</strong>
-          <p>${item.seller_id || item.subagent_id || item.target_id || "selected item"}</p>
+          <p>${item.responder_id || item.hotline_id || item.target_id || "selected item"}</p>
         </div>
         <span class="status ${status}">${status}</span>
       </div>

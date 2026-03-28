@@ -24,19 +24,19 @@ describe("e2e: invalid result package", () => {
       run: async () => {
         const requestId = `req_result_invalid_${Date.now()}`;
 
-        await jsonRequest(system.buyer.baseUrl, "/controller/requests", {
+        await jsonRequest(system.caller.baseUrl, "/controller/requests", {
           method: "POST",
           body: {
             request_id: requestId,
-            seller_id: system.sellerId,
-            subagent_id: system.subagentId,
+            responder_id: system.responderId,
+            hotline_id: system.hotlineId,
             expected_signer_public_key_pem: system.signing.publicKeyPem,
             soft_timeout_s: 5,
             hard_timeout_s: 10
           }
         });
 
-        const task = await jsonRequest(system.seller.baseUrl, "/controller/tasks", {
+        const task = await jsonRequest(system.responder.baseUrl, "/controller/tasks", {
           method: "POST",
           body: {
             request_id: requestId,
@@ -46,19 +46,19 @@ describe("e2e: invalid result package", () => {
         });
 
         const result = await waitFor(async () => {
-          const polled = await jsonRequest(system.seller.baseUrl, `/controller/tasks/${task.body.task_id}/result`);
+          const polled = await jsonRequest(system.responder.baseUrl, `/controller/tasks/${task.body.task_id}/result`);
           if (polled.status !== 200 || polled.body.available !== true) {
             throw new Error("result_not_ready");
           }
           return polled;
         });
 
-        await jsonRequest(system.buyer.baseUrl, `/controller/requests/${requestId}/result`, {
+        await jsonRequest(system.caller.baseUrl, `/controller/requests/${requestId}/result`, {
           method: "POST",
           body: result.body.result_package
         });
 
-        const final = await jsonRequest(system.buyer.baseUrl, `/controller/requests/${requestId}`);
+        const final = await jsonRequest(system.caller.baseUrl, `/controller/requests/${requestId}`);
         expect(final.body.status).toBe("UNVERIFIED");
         expect(final.body.last_error_code).toBe("RESULT_SCHEMA_INVALID");
 

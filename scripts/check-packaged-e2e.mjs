@@ -9,8 +9,8 @@ const ROOT_DIR = process.cwd();
 
 const PACKAGES = [
   { workspace: "@delexec/platform-api", envKey: "PLATFORM", bin: "delexec-platform-api" },
-  { workspace: "@delexec/buyer-controller", envKey: "BUYER", bin: "delexec-buyer-controller" },
-  { workspace: "@delexec/seller-controller", envKey: "SELLER", bin: "delexec-seller-controller" },
+  { workspace: "@delexec/caller-controller", envKey: "CALLER", bin: "delexec-caller-controller" },
+  { workspace: "@delexec/responder-controller", envKey: "RESPONDER", bin: "delexec-responder-controller" },
   { workspace: "@delexec/transport-relay", envKey: "RELAY", bin: "delexec-relay" },
   { workspace: "@delexec/ops", envKey: "OPS_SUPERVISOR", bin: "delexec-ops", args: ["start"] }
 ];

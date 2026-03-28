@@ -75,21 +75,21 @@ function encodePemForEnv(pem) {
   return pem.replace(/\n/g, "\\n");
 }
 
-function ensureBootstrapSellerEnv() {
+function ensureBootstrapResponderEnv() {
   if (
-    process.env.BOOTSTRAP_SELLER_API_KEY &&
-    process.env.BOOTSTRAP_SELLER_PUBLIC_KEY_PEM &&
-    process.env.BOOTSTRAP_SELLER_PRIVATE_KEY_PEM
+    process.env.BOOTSTRAP_RESPONDER_API_KEY &&
+    process.env.BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM &&
+    process.env.BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM
   ) {
     return;
   }
 
   const pair = crypto.generateKeyPairSync("ed25519");
-  process.env.BOOTSTRAP_SELLER_API_KEY ||= `sk_seller_smoke_${crypto.randomBytes(12).toString("hex")}`;
-  process.env.BOOTSTRAP_SELLER_PUBLIC_KEY_PEM ||= encodePemForEnv(
+  process.env.BOOTSTRAP_RESPONDER_API_KEY ||= `sk_responder_smoke_${crypto.randomBytes(12).toString("hex")}`;
+  process.env.BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM ||= encodePemForEnv(
     pair.publicKey.export({ type: "spki", format: "pem" }).toString()
   );
-  process.env.BOOTSTRAP_SELLER_PRIVATE_KEY_PEM ||= encodePemForEnv(
+  process.env.BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM ||= encodePemForEnv(
     pair.privateKey.export({ type: "pkcs8", format: "pem" }).toString()
   );
 }
@@ -223,10 +223,10 @@ async function waitFor(fn, { timeoutMs = 30000, intervalMs = 200 } = {}) {
 
 async function runScenario() {
   const platform = "http://127.0.0.1:8080";
-  const buyer = "http://127.0.0.1:8081";
+  const caller = "http://127.0.0.1:8081";
   const requestId = `req_compose_${Date.now()}`;
 
-  const register = await jsonRequest(buyer, "/controller/register", {
+  const register = await jsonRequest(caller, "/controller/register", {
     method: "POST",
     body: { email: "compose-smoke@test.local" }
   });
@@ -236,7 +236,7 @@ async function runScenario() {
 
   const auth = { "X-Platform-Api-Key": register.body.api_key };
 
-  const catalog = await jsonRequest(buyer, "/controller/catalog/subagents?status=enabled", {
+  const catalog = await jsonRequest(caller, "/controller/hotlines?status=enabled", {
     headers: auth
   });
   if (catalog.status !== 200 || !catalog.body?.items?.length) {
@@ -244,14 +244,14 @@ async function runScenario() {
   }
   const selected = catalog.body.items[0];
 
-  const started = await jsonRequest(buyer, "/controller/remote-requests", {
+  const started = await jsonRequest(caller, "/controller/remote-requests", {
     method: "POST",
     headers: auth,
     body: {
       request_id: requestId,
-      seller_id: selected.seller_id,
-      subagent_id: selected.subagent_id,
-      expected_signer_public_key_pem: selected.seller_public_key_pem,
+      responder_id: selected.responder_id,
+      hotline_id: selected.hotline_id,
+      expected_signer_public_key_pem: selected.responder_public_key_pem,
       soft_timeout_s: 5,
       hard_timeout_s: 20,
       simulate: "success",
@@ -259,7 +259,7 @@ async function runScenario() {
     }
   });
   if (started.status !== 201) {
-    throw new Error(`buyer_remote_request_failed: ${started.status}`);
+    throw new Error(`caller_remote_request_failed: ${started.status}`);
   }
 
   const events = await waitFor(async () => {
@@ -273,9 +273,9 @@ async function runScenario() {
   });
 
   const final = await waitFor(async () => {
-    const current = await jsonRequest(buyer, `/controller/requests/${requestId}`);
+    const current = await jsonRequest(caller, `/controller/requests/${requestId}`);
     if (current.status !== 200 || current.body?.status !== "SUCCEEDED") {
-      throw new Error("buyer_result_not_ready");
+      throw new Error("caller_result_not_ready");
     }
     return current;
   });
@@ -382,7 +382,7 @@ async function main() {
   const compose = resolveComposeArgs();
 
   try {
-    ensureBootstrapSellerEnv();
+    ensureBootstrapResponderEnv();
     console.log(`[compose-smoke] project=${composeProjectName()} mode=${useNoBuild() ? "published_image" : "source_build"}`);
     preflightComposeConfig(compose);
     cleanupComposeProject(compose, { label: "preflight" });

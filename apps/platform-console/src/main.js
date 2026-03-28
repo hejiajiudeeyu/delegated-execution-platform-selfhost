@@ -24,20 +24,28 @@ const uiState = {
   sessionToken: sessionStorage.getItem(sessionKeys.platformConsoleSession) || null,
   session: null,
   credentials: null,
-  sellers: [],
-  subagents: [],
+  responders: [],
+  hotlines: [],
   requests: [],
   audit: [],
   reviews: [],
   detail: null,
   loaded: false,
   pagination: {
-    sellers: { limit: 8, offset: 0, total: 0, has_more: false },
-    subagents: { limit: 8, offset: 0, total: 0, has_more: false },
+    responders: { limit: 8, offset: 0, total: 0, has_more: false },
+    hotlines: { limit: 8, offset: 0, total: 0, has_more: false },
     requests: { limit: 8, offset: 0, total: 0, has_more: false },
     audit: { limit: 8, offset: 0, total: 0, has_more: false },
     reviews: { limit: 8, offset: 0, total: 0, has_more: false }
   }
+};
+
+const sectionLabels = {
+  responders: "responders",
+  hotlines: "hotlines",
+  requests: "requests",
+  audit: "audit",
+  reviews: "reviews"
 };
 
 async function requestJson(baseUrl, pathname, { method = "GET", body } = {}) {
@@ -91,8 +99,8 @@ app.innerHTML = `
     <section class="hero">
       <div>
         <p class="eyebrow">Control Plane</p>
-        <h1>Platform Console</h1>
-        <p class="lede">Health, catalog, requests, and operator actions for the platform through a local gateway.</p>
+        <h1>Platform Control</h1>
+        <p class="lede">Health, Hotline catalog, request oversight, and operator actions for the platform through a local gateway.</p>
       </div>
       <div class="status-block">
         <span class="pill">Health</span>
@@ -161,13 +169,13 @@ app.innerHTML = `
       <input id="action-reason" value="operator review" />
       <label>Reviewer Notes</label>
       <textarea id="reviewer-notes" rows="4" placeholder="What was reviewed, what is being approved/rejected, and any follow-up."></textarea>
-      <label>Global Filter</label>
-      <input id="global-filter" placeholder="seller, subagent, request, action..." />
+          <label>Global Filter</label>
+      <input id="global-filter" placeholder="responder, hotline, request, action..." />
       <label>Section Filter</label>
       <select id="section-filter">
         <option value="all">all</option>
-        <option value="sellers">sellers</option>
-        <option value="subagents">subagents</option>
+        <option value="responders">responders</option>
+        <option value="hotlines">hotlines</option>
         <option value="requests">requests</option>
         <option value="audit">audit</option>
         <option value="reviews">reviews</option>
@@ -182,27 +190,27 @@ app.innerHTML = `
         </div>
         <div class="card">
           <div class="section-head">
-            <h2>Sellers</h2>
+            <h2>Responders</h2>
             <div class="actions inline">
-              <button id="sellers-prev" class="ghost">Prev</button>
-              <button id="sellers-next" class="ghost">Next</button>
-              <button id="refresh-sellers" class="ghost">Reload</button>
+              <button id="responders-prev" class="ghost">Prev</button>
+              <button id="responders-next" class="ghost">Next</button>
+              <button id="refresh-responders" class="ghost">Reload</button>
             </div>
           </div>
-          <p id="sellers-page" class="meta">sellers: no data</p>
-          <div id="sellers-list" class="stack"></div>
+          <p id="responders-page" class="meta">responders: no data</p>
+          <div id="responders-list" class="stack"></div>
         </div>
         <div class="card">
           <div class="section-head">
-            <h2>Subagents</h2>
+            <h2>Hotlines</h2>
             <div class="actions inline">
-              <button id="subagents-prev" class="ghost">Prev</button>
-              <button id="subagents-next" class="ghost">Next</button>
-              <button id="refresh-subagents" class="ghost">Reload</button>
+              <button id="hotlines-prev" class="ghost">Prev</button>
+              <button id="hotlines-next" class="ghost">Next</button>
+              <button id="refresh-hotlines" class="ghost">Reload</button>
             </div>
           </div>
-          <p id="subagents-page" class="meta">subagents: no data</p>
-          <div id="subagents-list" class="stack"></div>
+          <p id="hotlines-page" class="meta">hotlines: no data</p>
+          <div id="hotlines-list" class="stack"></div>
         </div>
       </section>
 
@@ -222,7 +230,7 @@ app.innerHTML = `
         </div>
         <div class="card">
           <div class="section-head">
-            <h2>Catalog</h2>
+            <h2>Hotline Catalog Control</h2>
             <button id="refresh-catalog" class="ghost">Reload</button>
           </div>
           <pre id="catalog-output" class="output compact">No catalog data loaded yet.</pre>
@@ -245,7 +253,7 @@ app.innerHTML = `
         </div>
         <div class="card">
           <div class="section-head">
-            <h2>Review Queue</h2>
+            <h2>Responder Review Queue</h2>
             <div class="actions inline">
               <button id="reviews-prev" class="ghost">Prev</button>
               <button id="reviews-next" class="ghost">Next</button>
@@ -300,11 +308,11 @@ const reviewActionSummary = document.querySelector("#review-action-summary");
 const detailSummary = document.querySelector("#detail-summary");
 const detailHistory = document.querySelector("#detail-history");
 const detailOutput = document.querySelector("#detail-output");
-const sellersList = document.querySelector("#sellers-list");
-const subagentsList = document.querySelector("#subagents-list");
+const respondersList = document.querySelector("#responders-list");
+const hotlinesList = document.querySelector("#hotlines-list");
 const pageOutputs = {
-  sellers: document.querySelector("#sellers-page"),
-  subagents: document.querySelector("#subagents-page"),
+  responders: document.querySelector("#responders-page"),
+  hotlines: document.querySelector("#hotlines-page"),
   requests: document.querySelector("#requests-page"),
   audit: document.querySelector("#audit-page"),
   reviews: document.querySelector("#reviews-page")
@@ -335,7 +343,7 @@ function sectionVisible(section) {
 }
 
 function updatePageSummary(section) {
-  pageOutputs[section].textContent = renderPaginationSummary(uiState.pagination[section], section);
+  pageOutputs[section].textContent = renderPaginationSummary(uiState.pagination[section], sectionLabels[section] || section);
 }
 
 function queryWithPagination(section) {
@@ -354,20 +362,20 @@ function setDetail(item) {
   uiState.detail = item;
   reviewerGuidance.innerHTML = renderReviewerGuidance(item);
   detailSummary.innerHTML = renderDetailSummary(item);
-  const sellerId = item?.seller_id || (item?.target_type === "seller" ? item.target_id : null);
-  const subagentId =
-    item?.subagent_id ||
-    (item?.target_type === "subagent" ? item.target_id : null) ||
-    (item?.seller_id ? null : item?.subagent_id || null);
+  const responderId = item?.responder_id || (item?.target_type === "responder" ? item.target_id : null);
+  const hotlineId =
+    item?.hotline_id ||
+    (item?.target_type === "hotline" ? item.target_id : null) ||
+    (item?.responder_id ? null : item?.hotline_id || null);
   const matchingReviews = uiState.reviews.filter(
     (entry) =>
-      (sellerId && entry.target_type === "seller" && entry.target_id === sellerId) ||
-      (subagentId && entry.target_type === "subagent" && entry.target_id === subagentId)
+      (responderId && entry.target_type === "responder" && entry.target_id === responderId) ||
+      (hotlineId && entry.target_type === "hotline" && entry.target_id === hotlineId)
   );
   const matchingAudit = uiState.audit.filter(
     (entry) =>
-      (sellerId && entry.target_type === "seller" && entry.target_id === sellerId) ||
-      (subagentId && entry.target_type === "subagent" && entry.target_id === subagentId)
+      (responderId && entry.target_type === "responder" && entry.target_id === responderId) ||
+      (hotlineId && entry.target_type === "hotline" && entry.target_id === hotlineId)
   );
   const combinedHistory = [...matchingReviews, ...matchingAudit].sort((left, right) =>
     String(right.recorded_at || "").localeCompare(String(left.recorded_at || ""))
@@ -389,7 +397,7 @@ function renderSessionState() {
         <div class="item-head">
           <div>
             <strong>Create Local Passphrase</strong>
-            <p>Initialize the shared encrypted secret store used by local consoles.</p>
+            <p>Initialize the shared encrypted secret store used by local control surfaces.</p>
           </div>
           <span class="status disabled">setup required</span>
         </div>
@@ -547,7 +555,7 @@ async function refreshCatalog() {
     catalogOutput.textContent = "Save platform credentials in the local gateway first.";
     return;
   }
-  const catalog = await proxyRequest("/v1/catalog/subagents");
+  const catalog = await proxyRequest("/v2/hotlines");
   catalogOutput.textContent = JSON.stringify({ ...catalog, body: { items: applyFilter(catalog.body?.items || []) } }, null, 2);
 }
 
@@ -565,28 +573,28 @@ async function refreshRequests() {
   requestsOutput.textContent = JSON.stringify({ ...requests, body: { items: filteredItems } }, null, 2);
 }
 
-async function refreshSellers() {
-  if (!sectionVisible("sellers")) {
-    sellersList.innerHTML = `<div class="empty">Sellers hidden by section filter.</div>`;
+async function refreshResponders() {
+  if (!sectionVisible("responders")) {
+    respondersList.innerHTML = `<div class="empty">Responders hidden by section filter.</div>`;
     return;
   }
-  const sellers = await proxyRequest(`/v1/admin/sellers?${queryWithPagination("sellers").toString()}`);
-  uiState.sellers = sellers.body?.items || [];
-  uiState.pagination.sellers = sellers.body?.pagination || uiState.pagination.sellers;
-  sellersList.innerHTML = renderEntityCardsMarkup(applyFilter(uiState.sellers), "sellers");
-  updatePageSummary("sellers");
+  const responders = await proxyRequest(`/v2/admin/responders?${queryWithPagination("responders").toString()}`);
+  uiState.responders = responders.body?.items || [];
+  uiState.pagination.responders = responders.body?.pagination || uiState.pagination.responders;
+  respondersList.innerHTML = renderEntityCardsMarkup(applyFilter(uiState.responders), "responders");
+  updatePageSummary("responders");
 }
 
-async function refreshSubagents() {
-  if (!sectionVisible("subagents")) {
-    subagentsList.innerHTML = `<div class="empty">Subagents hidden by section filter.</div>`;
+async function refreshHotlines() {
+  if (!sectionVisible("hotlines")) {
+    hotlinesList.innerHTML = `<div class="empty">Hotlines hidden by section filter.</div>`;
     return;
   }
-  const subagents = await proxyRequest(`/v1/admin/subagents?${queryWithPagination("subagents").toString()}`);
-  uiState.subagents = subagents.body?.items || [];
-  uiState.pagination.subagents = subagents.body?.pagination || uiState.pagination.subagents;
-  subagentsList.innerHTML = renderEntityCardsMarkup(applyFilter(uiState.subagents), "subagents");
-  updatePageSummary("subagents");
+  const hotlines = await proxyRequest(`/v2/admin/hotlines?${queryWithPagination("hotlines").toString()}`);
+  uiState.hotlines = hotlines.body?.items || [];
+  uiState.pagination.hotlines = hotlines.body?.pagination || uiState.pagination.hotlines;
+  hotlinesList.innerHTML = renderEntityCardsMarkup(applyFilter(uiState.hotlines), "hotlines");
+  updatePageSummary("hotlines");
 }
 
 async function refreshAudit() {
@@ -618,39 +626,39 @@ async function refreshReviews() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshOverview(), refreshSellers(), refreshSubagents(), refreshRequests(), refreshCatalog(), refreshAudit(), refreshReviews()]);
+  await Promise.all([refreshOverview(), refreshResponders(), refreshHotlines(), refreshRequests(), refreshCatalog(), refreshAudit(), refreshReviews()]);
 }
 
 async function runAction(type, id, action) {
-  const pathname = type === "sellers" ? `/v1/admin/sellers/${id}/${action}` : `/v1/admin/subagents/${id}/${action}`;
+  const pathname = type === "responders" ? `/v2/admin/responders/${id}/${action}` : `/v2/admin/hotlines/${id}/${action}`;
   await proxyRequest(pathname, {
     method: "POST",
     body: {
       reason: reviewerNotesInput.value.trim() || actionReasonInput.value.trim() || null
     }
   });
-  await Promise.all([refreshSellers(), refreshSubagents(), refreshCatalog(), refreshAudit(), refreshReviews()]);
+  await Promise.all([refreshResponders(), refreshHotlines(), refreshCatalog(), refreshAudit(), refreshReviews()]);
 }
 
-sellersList.addEventListener("click", async (event) => {
+respondersList.addEventListener("click", async (event) => {
   const card = event.target.closest("[data-detail-id]");
   if (card && !event.target.closest("button")) {
-    setDetail(uiState.sellers.find((item) => item.seller_id === card.dataset.detailId) || null);
+    setDetail(uiState.responders.find((item) => item.responder_id === card.dataset.detailId) || null);
   }
-  const button = event.target.closest("button[data-type='sellers']");
+  const button = event.target.closest("button[data-type='responders']");
   if (button) {
-    await runAction("sellers", button.dataset.id, button.dataset.action);
+    await runAction("responders", button.dataset.id, button.dataset.action);
   }
 });
 
-subagentsList.addEventListener("click", async (event) => {
+hotlinesList.addEventListener("click", async (event) => {
   const card = event.target.closest("[data-detail-id]");
   if (card && !event.target.closest("button")) {
-    setDetail(uiState.subagents.find((item) => item.subagent_id === card.dataset.detailId) || null);
+    setDetail(uiState.hotlines.find((item) => item.hotline_id === card.dataset.detailId) || null);
   }
-  const button = event.target.closest("button[data-type='subagents']");
+  const button = event.target.closest("button[data-type='hotlines']");
   if (button) {
-    await runAction("subagents", button.dataset.id, button.dataset.action);
+    await runAction("hotlines", button.dataset.id, button.dataset.action);
   }
 });
 
@@ -675,11 +683,11 @@ reviewsList.addEventListener("click", (event) => {
   }
 });
 
-for (const section of ["sellers", "subagents", "requests", "audit", "reviews"]) {
+for (const section of ["responders", "hotlines", "requests", "audit", "reviews"]) {
   document.querySelector(`#${section}-prev`).addEventListener("click", async () => {
     const pagination = uiState.pagination[section];
     pagination.offset = Math.max(0, pagination.offset - pagination.limit);
-    await ({ sellers: refreshSellers, subagents: refreshSubagents, requests: refreshRequests, audit: refreshAudit, reviews: refreshReviews }[section])();
+    await ({ responders: refreshResponders, hotlines: refreshHotlines, requests: refreshRequests, audit: refreshAudit, reviews: refreshReviews }[section])();
   });
   document.querySelector(`#${section}-next`).addEventListener("click", async () => {
     const pagination = uiState.pagination[section];
@@ -687,7 +695,7 @@ for (const section of ["sellers", "subagents", "requests", "audit", "reviews"]) 
       return;
     }
     pagination.offset += pagination.limit;
-    await ({ sellers: refreshSellers, subagents: refreshSubagents, requests: refreshRequests, audit: refreshAudit, reviews: refreshReviews }[section])();
+    await ({ responders: refreshResponders, hotlines: refreshHotlines, requests: refreshRequests, audit: refreshAudit, reviews: refreshReviews }[section])();
   });
 }
 
@@ -697,8 +705,8 @@ document.querySelector("#logout-session").addEventListener("click", logoutSessio
 document.querySelector("#change-passphrase").addEventListener("click", changePassphrase);
 document.querySelector("#save-credentials").addEventListener("click", saveCredentials);
 document.querySelector("#refresh-overview").addEventListener("click", refreshAll);
-document.querySelector("#refresh-sellers").addEventListener("click", refreshSellers);
-document.querySelector("#refresh-subagents").addEventListener("click", refreshSubagents);
+document.querySelector("#refresh-responders").addEventListener("click", refreshResponders);
+document.querySelector("#refresh-hotlines").addEventListener("click", refreshHotlines);
 document.querySelector("#refresh-requests").addEventListener("click", refreshRequests);
 document.querySelector("#refresh-catalog").addEventListener("click", refreshCatalog);
 document.querySelector("#refresh-audit").addEventListener("click", refreshAudit);
@@ -713,7 +721,7 @@ globalFilterInput.addEventListener("input", () => {
 });
 sectionFilterInput.addEventListener("change", () => {
   if (uiState.credentials?.api_key_configured) {
-    void Promise.all([refreshSellers(), refreshSubagents(), refreshRequests(), refreshAudit(), refreshReviews()]);
+    void Promise.all([refreshResponders(), refreshHotlines(), refreshRequests(), refreshAudit(), refreshReviews()]);
   }
 });
 for (const input of [platformUrlInput, actionReasonInput, reviewerNotesInput, sessionBootstrapSecretInput]) {

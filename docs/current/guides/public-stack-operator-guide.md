@@ -61,8 +61,8 @@ curl -fsS "${PUBLIC_SITE_ADDRESS%/}/gateway/healthz"
 
 Current defaults are production-oriented:
 
-- `ENABLE_BOOTSTRAP_SELLERS=false`
-- no pre-approved demo sellers are exposed
+- `ENABLE_BOOTSTRAP_RESPONDERS=false`
+- no pre-approved demo responders are exposed
 
 If you need prewired demo actors, use `deploy/all-in-one` instead of turning `public-stack` into a demo profile.
 
@@ -73,8 +73,8 @@ After the stack is healthy:
 1. initialize the gateway local secret store
 2. store `PLATFORM_ADMIN_API_KEY` through the gateway session flow
 3. verify an authenticated proxy call succeeds
-4. create or approve the first real seller and subagent
-5. confirm the catalog stays empty until both seller and subagent are `approved + enabled`
+4. create or approve the first real responder and hotline
+5. confirm the catalog stays empty until both responder and hotline are `approved + enabled`
 
 Minimal gateway flow:
 
@@ -89,7 +89,7 @@ curl -fsS -X PUT "$BASE/gateway/credentials/platform-admin" \
   -H "x-platform-console-session: $TOKEN" \
   -d "{\"api_key\":\"$PLATFORM_ADMIN_API_KEY\"}"
 
-curl -fsS "$BASE/gateway/proxy/v1/admin/subagents" \
+curl -fsS "$BASE/gateway/proxy/v2/admin/hotlines" \
   -H "x-platform-console-session: $TOKEN"
 ```
 

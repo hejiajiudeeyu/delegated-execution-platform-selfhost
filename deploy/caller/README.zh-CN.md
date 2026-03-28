@@ -9,4 +9,4 @@
 4. `docker compose up -d --build`
 5. 检查 `http://127.0.0.1:${PORT:-8081}/healthz`
 
-该 profile 以 SQLite 默认部署 `buyer-controller` 独立服务，并依赖外部 relay 服务。
+该 profile 以 SQLite 默认部署 `caller-controller` 独立服务，并依赖外部 relay 服务。

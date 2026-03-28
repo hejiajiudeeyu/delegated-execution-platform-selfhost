@@ -7,7 +7,7 @@
     "start": "node src/server.js"
   },
   "dependencies": {
-    "@delexec/contracts": "0.1.0",
+    "@delexec/contracts": "^0.1.0",
     "@delexec/runtime-utils": "0.1.0"
   }
 }

@@ -42,7 +42,7 @@
 
 ## 说明
 
-- `deploy/public-stack` 面向生产，默认 `ENABLE_BOOTSTRAP_SELLERS=false`
+- `deploy/public-stack` 面向生产，默认 `ENABLE_BOOTSTRAP_RESPONDERS=false`
 - 如需预置演示角色，优先使用 `deploy/all-in-one`
 - gateway 在容器内使用 `DELEXEC_HOME=/var/lib/delexec-ops`，并可从环境变量读取 `PLATFORM_ADMIN_API_KEY`（兼容旧密钥来源）
 - 首次调用 `/gateway/session/setup` 时，若调用方非本机或未携带 `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`，会被拒绝

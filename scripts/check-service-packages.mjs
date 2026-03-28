@@ -13,7 +13,7 @@ const SERVICE_PACKAGES = [
     bin: "delexec-platform-api",
     env: () => ({
       TOKEN_SECRET: "service-package-test-token-secret",
-      ENABLE_BOOTSTRAP_SELLERS: "false"
+      ENABLE_BOOTSTRAP_RESPONDERS: "false"
     })
   },
   {

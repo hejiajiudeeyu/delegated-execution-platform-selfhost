@@ -64,8 +64,8 @@ curl -fsS "${PUBLIC_SITE_ADDRESS%/}/gateway/healthz"
 
 当前默认偏生产：
 
-- `ENABLE_BOOTSTRAP_SELLERS=false`
-- 不暴露预先批准的演示 seller
+- `ENABLE_BOOTSTRAP_RESPONDERS=false`
+- 不暴露预先批准的演示 responder
 
 如果你需要预置演示角色，请使用 `deploy/all-in-one`，不要把 `public-stack` 改造成演示 profile。
 
@@ -76,8 +76,8 @@ curl -fsS "${PUBLIC_SITE_ADDRESS%/}/gateway/healthz"
 1. 初始化 gateway 本地密钥存储
 2. 通过 gateway 会话流程写入 `PLATFORM_ADMIN_API_KEY`
 3. 验证一次认证代理调用成功
-4. 创建或批准首个真实 seller 与 subagent
-5. 确认在 seller 与 subagent 都 `approved + enabled` 前，目录保持为空
+4. 创建或批准首个真实 responder 与 hotline
+5. 确认在 responder 与 hotline 都 `approved + enabled` 前，目录保持为空
 
 最小 gateway 流程：
 
@@ -87,7 +87,7 @@ TOKEN=$(curl -fsS -X POST "$BASE/gateway/session/setup"   -H 'content-type: appl
 
 curl -fsS -X PUT "$BASE/gateway/credentials/platform-admin"   -H 'content-type: application/json'   -H "x-platform-console-session: $TOKEN"   -d "{"api_key":"$PLATFORM_ADMIN_API_KEY"}"
 
-curl -fsS "$BASE/gateway/proxy/v1/admin/subagents"   -H "x-platform-console-session: $TOKEN"
+curl -fsS "$BASE/gateway/proxy/v2/admin/hotlines"   -H "x-platform-console-session: $TOKEN"
 ```
 
 ## 冒烟验证

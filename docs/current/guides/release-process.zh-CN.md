@@ -47,7 +47,7 @@
 - `service_runtime_failed`：容器已启动但进入 `unhealthy/exited/restarting`
 - `health_check_timeout`：服务未在时限内变为健康
 - `postgres_crud_check_failed`：数据库启动成功但基础 CRUD 失败
-- `register_failed` / `catalog_failed` / `buyer_remote_request_failed` / `ack_not_ready` / `buyer_result_not_ready`：业务路径回归
+- `register_failed` / `catalog_failed` / `caller_remote_request_failed` / `ack_not_ready` / `caller_result_not_ready`：业务路径回归
 
 ## 兼容性说明
 

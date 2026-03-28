@@ -1,0 +1,30 @@
+services:
+  responder-controller:
+    image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-responder:${IMAGE_TAG:-latest}
+    environment:
+      PORT: ${PORT:-8082}
+      SERVICE_NAME: responder-controller
+      PLATFORM_API_BASE_URL: ${PLATFORM_API_BASE_URL}
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      TRANSPORT_BASE_URL: ${TRANSPORT_BASE_URL}
+      TRANSPORT_RECEIVER: ${TRANSPORT_RECEIVER:-responder_foxlab}
+      DATABASE_URL: ${DATABASE_URL:-}
+      RESPONDER_ID: ${RESPONDER_ID:-responder_foxlab}
+      HOTLINE_IDS: ${HOTLINE_IDS:-foxlab.text.classifier.v1}
+      RESPONDER_SIGNING_PUBLIC_KEY_PEM: ${RESPONDER_SIGNING_PUBLIC_KEY_PEM:-}
+      RESPONDER_SIGNING_PRIVATE_KEY_PEM: ${RESPONDER_SIGNING_PRIVATE_KEY_PEM:-}
+      RESPONDER_MAX_HARD_TIMEOUT_S: ${RESPONDER_MAX_HARD_TIMEOUT_S:-300}
+      RESPONDER_ALLOWED_TASK_TYPES: ${RESPONDER_ALLOWED_TASK_TYPES:-}
+      RESPONDER_HEARTBEAT_INTERVAL_MS: ${RESPONDER_HEARTBEAT_INTERVAL_MS:-30000}
+      RESPONDER_INBOX_POLL_INTERVAL_MS: ${RESPONDER_INBOX_POLL_INTERVAL_MS:-250}
+      RESPONDER_WORKER_CONCURRENCY: ${RESPONDER_WORKER_CONCURRENCY:-1}
+      SQLITE_DATABASE_PATH: ${SQLITE_DATABASE_PATH:-/data/responder-controller.sqlite}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${PORT:-8082}:8082"
+    volumes:
+      - responder-data:/data
+
+volumes:
+  responder-data:

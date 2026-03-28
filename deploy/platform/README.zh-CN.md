@@ -16,10 +16,10 @@
 
 重要默认值：
 
-- `deploy/platform` 面向生产，默认 `ENABLE_BOOTSTRAP_SELLERS=false`
-- 默认 **不会** 暴露预批准演示 seller，除非你显式开启
-- 若用于本地/演示 bootstrap seller，建议改用 `deploy/all-in-one`，或显式设置：
-  - `ENABLE_BOOTSTRAP_SELLERS=true`
-  - `BOOTSTRAP_SELLER_ID`
-  - `BOOTSTRAP_SUBAGENT_ID`
+- `deploy/platform` 面向生产，默认 `ENABLE_BOOTSTRAP_RESPONDERS=false`
+- 默认 **不会** 暴露预批准演示 responder，除非你显式开启
+- 若用于本地/演示 bootstrap responder，建议改用 `deploy/all-in-one`，或显式设置：
+  - `ENABLE_BOOTSTRAP_RESPONDERS=true`
+  - `BOOTSTRAP_RESPONDER_ID`
+  - `BOOTSTRAP_HOTLINE_ID`
   - `BOOTSTRAP_TASK_DELIVERY_ADDRESS`

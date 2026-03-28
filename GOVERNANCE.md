@@ -34,8 +34,8 @@
 ## 5. 模块 Owner（后续）
 
 项目稳定后可按模块设 Owner：
-- Buyer
-- Seller
+- Caller
+- Responder
 - Platform API
 - Docs & Playground
 

@@ -27,7 +27,7 @@ describe("platform console gateway integration", () => {
     process.env.DELEXEC_HOME = opsHome;
 
     const adminApiKey = "sk_admin_integration_test";
-    const platformState = createPlatformState({ adminApiKey });
+    const platformState = createPlatformState({ adminApiKey, bootstrapEnabled: true });
     const platformServer = createPlatformServer({
       serviceName: "platform-console-gateway-test",
       state: platformState
@@ -41,7 +41,7 @@ describe("platform console gateway integration", () => {
     try {
       const consoleResponse = await fetch(`${gatewayUrl}/`);
       expect(consoleResponse.status).toBe(200);
-      expect(await consoleResponse.text()).toContain("Platform Console");
+      expect(await consoleResponse.text()).toContain("Platform Control");
 
       const sessionBefore = await jsonRequest(gatewayUrl, "/session");
       expect(sessionBefore.status).toBe(200);
@@ -74,12 +74,12 @@ describe("platform console gateway integration", () => {
       expect(current.body.platform_url).toBe(platformUrl);
       expect(current.body.api_key_configured).toBe(true);
 
-      const sellers = await jsonRequest(gatewayUrl, "/proxy/v1/admin/sellers", {
+      const responders = await jsonRequest(gatewayUrl, "/proxy/v2/admin/responders", {
         headers
       });
-      expect(sellers.status).toBe(200);
-      expect(Array.isArray(sellers.body.items)).toBe(true);
-      expect(sellers.body.items.length).toBeGreaterThan(0);
+      expect(responders.status).toBe(200);
+      expect(Array.isArray(responders.body.items)).toBe(true);
+      expect(responders.body.items.length).toBeGreaterThan(0);
 
       const logout = await jsonRequest(gatewayUrl, "/session/logout", {
         method: "POST",

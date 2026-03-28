@@ -26,7 +26,7 @@ async function main() {
     throw new Error(`platform_register_failed: ${register.status}`);
   }
 
-  const catalog = await jsonRequest(baseUrl, "/v1/catalog/subagents?status=enabled");
+  const catalog = await jsonRequest(baseUrl, "/v2/hotlines?status=enabled");
   if (catalog.status !== 200 || !Array.isArray(catalog.body?.items)) {
     throw new Error(`platform_catalog_failed: ${catalog.status}`);
   }

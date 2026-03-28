@@ -15,11 +15,14 @@ WORKDIR /app
 
 ARG APP_PATH
 
-COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/platform-api/node_modules ./apps/platform-api/node_modules
+COPY --from=deps /app/apps/platform-console-gateway/node_modules ./apps/platform-console-gateway/node_modules
+COPY --from=deps /app/apps/transport-relay/node_modules ./apps/transport-relay/node_modules
 
 ENV NODE_ENV=production
 WORKDIR /app/${APP_PATH}

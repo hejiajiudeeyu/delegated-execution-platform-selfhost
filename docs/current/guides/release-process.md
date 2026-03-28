@@ -44,7 +44,7 @@ Recommended tags:
 - `service_runtime_failed`: containers started but entered `unhealthy/exited/restarting`
 - `health_check_timeout`: services did not become healthy in time
 - `postgres_crud_check_failed`: database booted but failed basic CRUD
-- `register_failed` / `catalog_failed` / `buyer_remote_request_failed` / `ack_not_ready` / `buyer_result_not_ready`: business-path regression
+- `register_failed` / `catalog_failed` / `caller_remote_request_failed` / `ack_not_ready` / `caller_result_not_ready`: business-path regression
 
 ## Compatibility Note
 

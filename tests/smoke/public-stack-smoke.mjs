@@ -212,14 +212,14 @@ async function runScenario(baseUrl) {
     throw new Error(`gateway_credentials_failed: ${credentials.status}`);
   }
 
-  const proxied = await jsonRequest(baseUrl, "/gateway/proxy/v1/admin/subagents", {
+  const proxied = await jsonRequest(baseUrl, "/gateway/proxy/v2/admin/hotlines", {
     headers: sessionHeaders
   });
   if (proxied.status !== 200 || !Array.isArray(proxied.body?.items)) {
     throw new Error(`gateway_proxy_failed: ${proxied.status}`);
   }
 
-  console.log(`[public-stack-smoke] gateway proxy ok subagents=${proxied.body.items.length}`);
+  console.log(`[public-stack-smoke] gateway proxy ok hotlines=${proxied.body.items.length}`);
 }
 
 async function main() {

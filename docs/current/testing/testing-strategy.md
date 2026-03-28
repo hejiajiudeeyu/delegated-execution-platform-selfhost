@@ -3,7 +3,7 @@
 预拆分附加规则：
 
 - E2E 与 compatibility 测试优先使用独立进程边界，不直接 import 各服务的 server factory
-- 未来跨仓验收的启动约定见 [Cross-Repo Compatibility Testing](/Users/hejiajiudeeyu/Documents/Projects/remote-subagent-protocol/docs/current/testing/cross-repo-compatibility-testing.md)
+- 未来跨仓验收的启动约定见 [Cross-Repo Compatibility Testing](/Users/hejiajiudeeyu/Documents/Projects/remote-hotline-protocol/docs/current/testing/cross-repo-compatibility-testing.md)
 
 ## 1. 目标
 
@@ -16,14 +16,14 @@
 
 - Unit：状态机、错误码、schema 约束等纯逻辑
 - Integration：单服务 HTTP 接口与内存状态行为
-- E2E：Platform + Buyer Controller + Seller Controller 的端到端场景，按独立进程 / HTTP 边界运行
+- E2E：Platform + Caller Controller + Responder Controller 的端到端场景，按独立进程 / HTTP 边界运行
 - Compose Smoke：Docker 真实进程冒烟（`tests/smoke/compose-smoke.mjs`）
 
 ## 3. 场景来源
 
 测试场景由两部分共同定义：
 
-- 流程图（步骤覆盖与编号锚点）：`../diagrams/user-remote-subagent-call-flow.md`
+- 流程图（步骤覆盖与编号锚点）：`../diagrams/user-remote-hotline-call-flow.md`
 - 规范文档（断言口径）：`../spec/architecture.md`、`../spec/platform-api-v0.1.md`、`../guides/integration-playbook.md`
 
 ## 4. Mock / Runtime 策略
@@ -35,8 +35,8 @@
 - `FakeClock`：超时测试中的可控时间源
 
 当前默认联调以本地参考 transport 为主：
-- Buyer 通过 `dispatch` 把任务 envelope 写入本地 transport
-- Seller 通过 `inbox/pull` 拉取并 ACK 本地 transport 消息
+- Caller 通过 `dispatch` 把任务 envelope 写入本地 transport
+- Responder 通过 `inbox/pull` 拉取并 ACK 本地 transport 消息
 - Platform 继续只承担控制面职责
 
 Mock 仍用于单点接口与失败分支测试；真实邮件通道测试放在补充冒烟链路。
@@ -68,9 +68,9 @@ Web UI 加载该报告并在流程图中高亮对应步骤。
 - token 过期：`AUTH_TOKEN_EXPIRED`
 - 结果不合规：`RESULT_SCHEMA_INVALID` / `UNVERIFIED`
 
-并覆盖“错误结果包可被 buyer 验收并反馈”的路径。
+并覆盖“错误结果包可被 caller 验收并反馈”的路径。
 
 当前 E2E 额外已验证：
-- Seller 结果验签使用预绑定信任公钥，而非结果包自带公钥
-- `delivery-meta` 与 token claims 的 `request_id/seller_id/subagent_id/buyer_id` 绑定
-- 平台 seller 侧接口的最小 RBAC 约束
+- Responder 结果验签使用预绑定信任公钥，而非结果包自带公钥
+- `delivery-meta` 与 token claims 的 `request_id/responder_id/hotline_id/caller_id` 绑定
+- 平台 responder 侧接口的最小 RBAC 约束

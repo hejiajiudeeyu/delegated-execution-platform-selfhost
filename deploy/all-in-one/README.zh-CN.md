@@ -10,5 +10,5 @@
    - `http://127.0.0.1:8081/healthz`
    - `http://127.0.0.1:8082/healthz`
 
-该 profile 会同时启动 PostgreSQL、platform、buyer、seller，适用于本地联调和演示。
-当前运行时行为使用 request-scoped `delivery-meta`；在 email 模式下，seller 返回纯 JSON 结果体，文件产物可作为附件由 buyer-controller 校验。
+该 profile 会同时启动 PostgreSQL、platform、caller、responder，适用于本地联调和演示。
+当前运行时行为使用 request-scoped `delivery-meta`；在 email 模式下，responder 返回纯 JSON 结果体，文件产物可作为附件由 caller-controller 校验。

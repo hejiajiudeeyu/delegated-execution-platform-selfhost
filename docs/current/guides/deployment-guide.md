@@ -5,7 +5,7 @@ This guide covers the current self-hosted platform deployment shapes for operato
 Current protocol/runtime baseline:
 
 - platform returns request-scoped `delivery-meta` with `task_delivery` and `result_delivery`
-- seller result mail uses a pure JSON body; buyer-controller parses and verifies it before exposing it upstream
+- responder result mail uses a pure JSON body; caller-controller parses and verifies it before exposing it upstream
 - file outputs may travel as attachments described by signed `artifacts[]`
 - `platform_inbox` is reserved for future evolution and is not implemented in current deployments
 
@@ -32,8 +32,8 @@ Profile intent:
 The following profiles still exist for historical local integration and internal validation, but they are not the primary operator-facing product surface:
 
 - `deploy/ops`
-- `deploy/buyer`
-- `deploy/seller`
+- `deploy/caller`
+- `deploy/responder`
 - `deploy/all-in-one`
 
 ## Image Distribution
@@ -55,7 +55,7 @@ Set `PLATFORM_ADMIN_API_KEY` on the platform deployment if you want a stable ope
 
 - `platform-console` should talk only to `platform-console-gateway`
 - `platform-console-gateway` should use `PLATFORM_ADMIN_API_KEY`
-- buyer credentials no longer imply operator access
+- caller credentials no longer imply operator access
 - a user can still be granted the `admin` role later through the admin role-grant endpoint
 - the browser should never persist the operator API key directly; it is stored in the encrypted local secret store and injected by the gateway
 - `deploy/platform` should explicitly pass:
@@ -102,14 +102,14 @@ The relay is the shared transport runtime used by the platform-facing stack.
 - The relay can run with SQLite persistence via `RELAY_SQLITE_PATH`
 - `local://relay/<receiver>/...` delivery addresses resolve to relay receivers
 
-## Seller Signing Keys
+## Responder Signing Keys
 
-Seller signing is optional for local demos but should be treated as required for non-demo deployments.
+Responder signing is optional for local demos but should be treated as required for non-demo deployments.
 
 Configure both variables together:
 
-- `SELLER_SIGNING_PUBLIC_KEY_PEM`
-- `SELLER_SIGNING_PRIVATE_KEY_PEM`
+- `RESPONDER_SIGNING_PUBLIC_KEY_PEM`
+- `RESPONDER_SIGNING_PRIVATE_KEY_PEM`
 
 Rules:
 
@@ -120,27 +120,27 @@ Rules:
 Example format:
 
 ```env
-SELLER_SIGNING_PUBLIC_KEY_PEM=-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----
-SELLER_SIGNING_PRIVATE_KEY_PEM=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----
+RESPONDER_SIGNING_PUBLIC_KEY_PEM=-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----
+RESPONDER_SIGNING_PRIVATE_KEY_PEM=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----
 ```
 
 For `platform` bootstrap mode, the matching variables are:
 
-- `ENABLE_BOOTSTRAP_SELLERS`
-- `BOOTSTRAP_SELLER_PUBLIC_KEY_PEM`
-- `BOOTSTRAP_SELLER_PRIVATE_KEY_PEM`
-- `BOOTSTRAP_SELLER_API_KEY`
+- `ENABLE_BOOTSTRAP_RESPONDERS`
+- `BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM`
+- `BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM`
+- `BOOTSTRAP_RESPONDER_API_KEY`
 - `BOOTSTRAP_TASK_DELIVERY_ADDRESS`
 
-Use the same seller identity and key pair on both `platform` and `seller` when running them as separate deployments.
-For production-oriented `deploy/platform`, leave bootstrap sellers disabled unless you are intentionally running a prewired demo environment.
+Use the same responder identity and key pair on both `platform` and `responder` when running them as separate deployments.
+For production-oriented `deploy/platform`, leave bootstrap responders disabled unless you are intentionally running a prewired demo environment.
 
 ## Deployment Recommendations
 
 - `platform`: publish and deploy as a server-side image with managed PostgreSQL
 - `public-stack`: prefer this when you want a single public operator bundle with edge ingress
-- `buyer`: support both container deployment and direct embedding; use Docker when you want standardized operations
-- `seller`: prefer repo-local `npm run ops -- ...` on end-user machines, and use container deployment for operator-managed standalone services
+- `caller`: support both container deployment and direct embedding; use Docker when you want standardized operations
+- `responder`: prefer repo-local `npm run ops -- ...` on end-user machines, and use container deployment for operator-managed standalone services
 
 ## Release Shape
 
@@ -153,5 +153,5 @@ Recommended image tagging model:
 Recommended publish order:
 
 1. publish shared test results
-2. publish `rsp-platform`, `rsp-buyer`, `rsp-seller`
+2. publish `rsp-platform`, `rsp-caller`, `rsp-responder`
 3. update deploy examples to the released `IMAGE_TAG`

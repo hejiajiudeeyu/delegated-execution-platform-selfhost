@@ -51,7 +51,7 @@ export function createRelayHttpTransportAdapter({ baseUrl, receiver }) {
 
   return {
     async send(envelope) {
-      const target = resolveReceiver(envelope.to || envelope.seller_id || receiver);
+      const target = resolveReceiver(envelope.to || envelope.responder_id || receiver);
       const message = {
         ...envelope,
         to: envelope.to || target,

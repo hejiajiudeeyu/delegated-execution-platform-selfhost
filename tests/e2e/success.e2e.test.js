@@ -23,7 +23,7 @@ describe("e2e: success path", () => {
       run: async () => {
         const requestId = `req_success_${Date.now()}`;
 
-        const registered = await jsonRequest(system.buyer.baseUrl, "/controller/register", {
+        const registered = await jsonRequest(system.caller.baseUrl, "/controller/register", {
           method: "POST",
           body: { contact_email: "e2e-success@test.local" }
         });
@@ -32,11 +32,11 @@ describe("e2e: success path", () => {
         const authHeader = { "X-Platform-Api-Key": registered.body.api_key };
 
         const catalog = await waitFor(async () => {
-          const current = await jsonRequest(system.buyer.baseUrl, "/controller/catalog/subagents?status=enabled", {
+          const current = await jsonRequest(system.caller.baseUrl, "/controller/hotlines?status=enabled", {
             headers: authHeader
           });
           const item = current.body?.items?.find(
-            (entry) => entry.seller_id === system.sellerId && entry.subagent_id === system.subagentId
+            (entry) => entry.responder_id === system.responderId && entry.hotline_id === system.hotlineId
           );
           if (!item) {
             throw new Error("bootstrap_catalog_item_not_ready");
@@ -44,14 +44,14 @@ describe("e2e: success path", () => {
           return item;
         });
 
-        const started = await jsonRequest(system.buyer.baseUrl, "/controller/remote-requests", {
+        const started = await jsonRequest(system.caller.baseUrl, "/controller/remote-requests", {
           method: "POST",
           headers: authHeader,
           body: {
             request_id: requestId,
-            seller_id: catalog.seller_id,
-            subagent_id: catalog.subagent_id,
-            expected_signer_public_key_pem: catalog.seller_public_key_pem,
+            responder_id: catalog.responder_id,
+            hotline_id: catalog.hotline_id,
+            expected_signer_public_key_pem: catalog.responder_public_key_pem,
             simulate: "success",
             delay_ms: 30,
             soft_timeout_s: 5,
@@ -61,7 +61,7 @@ describe("e2e: success path", () => {
         expect(started.status).toBe(201);
 
         await waitFor(async () => {
-          const current = await jsonRequest(system.buyer.baseUrl, `/controller/requests/${requestId}`);
+          const current = await jsonRequest(system.caller.baseUrl, `/controller/requests/${requestId}`);
           if (current.body.status !== "ACKED" && current.body.status !== "SUCCEEDED") {
             throw new Error("ack_not_ready");
           }
@@ -69,7 +69,7 @@ describe("e2e: success path", () => {
         });
 
         const final = await waitFor(async () => {
-          const current = await jsonRequest(system.buyer.baseUrl, `/controller/requests/${requestId}`);
+          const current = await jsonRequest(system.caller.baseUrl, `/controller/requests/${requestId}`);
           if (current.body.status !== "SUCCEEDED") {
             throw new Error("result_not_ready");
           }

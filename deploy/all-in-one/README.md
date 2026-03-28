@@ -7,5 +7,5 @@
    - `http://127.0.0.1:8081/healthz`
    - `http://127.0.0.1:8082/healthz`
 
-This profile starts PostgreSQL, platform, buyer, and seller together for local integration and demos.
-Current runtime behavior uses request-scoped `delivery-meta`; in email mode, seller returns a pure JSON result body and optional file artifacts as attachments validated by buyer-controller.
+This profile starts PostgreSQL, platform, caller, and responder together for local integration and demos.
+Current runtime behavior uses request-scoped `delivery-meta`; in email mode, responder returns a pure JSON result body and optional file artifacts as attachments validated by caller-controller.

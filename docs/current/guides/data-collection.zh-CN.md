@@ -11,7 +11,7 @@
 ## 1) 协议观测（外部可见）
 
 用于协议观测页或公开状态页的聚合信息：
-- `seller_id`, `subagent_id`, `display_name`, `capabilities`, `version`
+- `responder_id`, `hotline_id`, `display_name`, `capabilities`, `version`
 - `call_volume`（调用量）
 - `success_rate`, `timeout_rate`, `schema_compliance_rate`
 - `p95_exec_ms`, `sample_size`
@@ -25,17 +25,17 @@
 ## 2) 运行维护（稳定性）
 
 用于日常运维、时延观察、异常排查：
-- 心跳数据：`seller_id`, `timestamp`, `queue_depth`, `est_exec_p95_s`
+- 心跳数据：`responder_id`, `timestamp`, `queue_depth`, `est_exec_p95_s`
 - 请求事件：`request_id`, `event_type(ACKED|COMPLETED|FAILED)`, `at`, `eta_hint_s(optional)`, `finished_at(optional)`, `error_code(optional)`
-- 指标事件：`source`, `event_type`, `timestamp`, `seller_id`, `subagent_id`
+- 指标事件：`source`, `event_type`, `timestamp`, `responder_id`, `hotline_id`
 - 目录变更审计：导入批次号、操作者、变更时间、变更项
-- token 审计摘要：签发时间、过期时间、`buyer_id/seller_id/subagent_id/request_id`（不存 token 明文）
+- token 审计摘要：签发时间、过期时间、`caller_id/responder_id/hotline_id/request_id`（不存 token 明文）
 
 ## 3) 实现演进（调优与路由）
 
 用于后续策略优化的数据：
-- 买家选路与结果：
-  - 选择了哪个 `subagent_id`
+- Caller 选路与结果：
+  - 选择了哪个 `hotline_id`
   - 是否 ACK 超时
   - 最终状态（成功/失败/超时/不合规）
 - 延迟分层：
@@ -53,7 +53,7 @@
 - 任务正文 `task.input` 全量内容（默认不入库）
 - 结果正文 `result.output` 全量内容（默认不入库）
 - transport 原始消息全文（仅保留必要元数据）
-- token 原文与卖家私钥
+- token 原文与 responder 私钥
 
 如确需采样内容用于质检，必须额外开关并做脱敏与最小化留存。
 
@@ -64,14 +64,14 @@
 - `catalog_import_batches`
 - `task_tokens_audit`
 - `request_events`
-- `seller_heartbeats`
+- `responder_heartbeats`
 - `metrics_events`
 - `metrics_daily_agg`
 
 ## 6) 留存建议
 
 - `request_events`：90 天
-- `seller_heartbeats`：30 天（用于在线率分析）
+- `responder_heartbeats`：30 天（用于在线率分析）
 - `metrics_events`：180 天
 - `metrics_daily_agg`：长期保留
 - `catalog_import_batches`：长期保留（审计）

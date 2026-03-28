@@ -19,13 +19,13 @@
 
 - 协议主链路已实现
 - 已有公共运维栈
-- 已有正式 seller/subagent onboarding 与隐藏审核测试
+- 已有正式 responder/hotline onboarding 与隐藏审核测试
 
 ## Pilot-Ready 的含义
 
 当前已支持：
 
-- 带管理员审批的受控 seller/subagent onboarding
+- 带管理员审批的受控 responder/hotline onboarding
 - 基于 `deploy/platform`、`deploy/public-stack`、`deploy/relay` 的自托管部署
 - source-build 运维栈验证
 - 面向 GHCR 的已发布镜像冒烟验证

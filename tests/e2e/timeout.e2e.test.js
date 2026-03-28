@@ -24,21 +24,21 @@ describe("e2e: timeout path", () => {
       run: async () => {
         const requestId = `req_timeout_${Date.now()}`;
 
-        await jsonRequest(system.buyer.baseUrl, "/controller/requests", {
+        await jsonRequest(system.caller.baseUrl, "/controller/requests", {
           method: "POST",
           body: {
             request_id: requestId,
-            seller_id: system.sellerId,
-            subagent_id: system.subagentId,
+            responder_id: system.responderId,
+            hotline_id: system.hotlineId,
             expected_signer_public_key_pem: system.signing.publicKeyPem,
             soft_timeout_s: 1,
             hard_timeout_s: 1
           }
         });
 
-        await jsonRequest(system.buyer.baseUrl, `/controller/requests/${requestId}/mark-sent`, { method: "POST" });
+        await jsonRequest(system.caller.baseUrl, `/controller/requests/${requestId}/mark-sent`, { method: "POST" });
 
-        await jsonRequest(system.seller.baseUrl, "/controller/tasks", {
+        await jsonRequest(system.responder.baseUrl, "/controller/tasks", {
           method: "POST",
           body: {
             request_id: requestId,
@@ -49,7 +49,7 @@ describe("e2e: timeout path", () => {
 
         await new Promise((resolve) => setTimeout(resolve, 1300));
 
-        const final = await jsonRequest(system.buyer.baseUrl, `/controller/requests/${requestId}`);
+        const final = await jsonRequest(system.caller.baseUrl, `/controller/requests/${requestId}`);
         expect(final.body.status).toBe("TIMED_OUT");
 
         recordFlowIssue({
