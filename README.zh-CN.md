@@ -80,6 +80,12 @@ cp deploy/platform/.env.example deploy/platform/.env
 
 本仓库不负责协议真实来源定义，也不负责端用户 `delexec-ops` 客户端体验。
 
+当前产品边界：
+
+- `delexec-ops` 客户端当前先聚焦本地 caller / responder / hotline 管理
+- 首次本地注册与本地自调用不依赖本仓库
+- 自托管平台部署以及后续社区 / catalog 发布能力仍由本仓库负责
+
 ## 公开产品面
 
 本仓库面向最终用户的入口是基于 Docker 的部署流程：

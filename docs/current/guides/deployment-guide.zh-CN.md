@@ -18,6 +18,12 @@
 - 低层服务部署：使用 `deploy/platform` 与 `deploy/relay`
 - 终端用户客户端安装已不属于本仓库关注范围
 
+当前范围说明：
+
+- 当前 `delexec-ops` 的主产品路径是本地优先的 caller / responder / hotline 管理
+- 当你需要运维部署、共享 catalog 基础设施或后续自托管发布流程时，再使用本仓库
+- 不要把 platform bootstrap 视为终端用户机器上首次本地 hotline 注册的前置条件
+
 ## 支持的 Profile
 
 - `deploy/public-stack`：推荐的运维栈

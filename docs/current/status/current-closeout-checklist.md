@@ -2,6 +2,11 @@
 
 This checklist tracks the remaining work before the current implementation can be considered fully closed as a productized, deployable baseline.
 
+Current planning note:
+- this checklist is about the operator-facing platform baseline
+- it is not the current priority path for `delexec-ops` first-use onboarding
+- local-first client management should be considered complete independently from the remaining items here
+
 补充口径：
 - 当前仓库已经可以作为 `Protocol v0.1 + Caller/Responder/Platform 参考实现 + local transport 双端示例` 发布基线。
 - 本清单中的剩余项针对的是“productized, deployable baseline”意义上的当前版本完全收官，而不是首版协议闭环是否成立。
@@ -47,6 +52,11 @@ This checklist tracks the remaining work before the current implementation can b
 - `partial` approval history UX can still be deepened, but the core reviewer notes, guidance, and history workflow is in place
 
 ## Caller And Responder Operations
+
+Note:
+- this section reflects historical cross-surface status in the shared implementation era
+- the current product focus for caller / responder first use lives in `delegated-execution-client`
+- do not read these items as a requirement that local client onboarding must pass through platform review first
 
 - `done` caller remote request entrypoint
 - `done` caller background inbox and event sync loops

@@ -5,6 +5,11 @@
 
 本清单用于跟踪：在当前实现被视为“产品化、可部署基线”之前仍需完成的工作。
 
+当前规划说明：
+- 本清单面向运维侧 platform baseline
+- 它不是 `delexec-ops` 首次上手的当前优先路径
+- 本地优先的 client 管理闭环可以独立于这里的剩余事项先行完成
+
 补充口径：
 - 当前仓库已经可以作为 `Protocol v0.1 + Caller/Responder/Platform 参考实现 + local transport 双端示例` 的发布基线。
 - 本清单剩余项面向“productized, deployable baseline”意义上的完全收官，不等同于首版协议闭环是否成立。
@@ -50,6 +55,11 @@
 - `partial`：审批历史 UX 仍可加强，但 reviewer 备注、指引与历史工作流已就位
 
 ## Caller 与 Responder 运维能力
+
+说明：
+- 本节反映的是共享实现时期的跨面状态
+- 当前 caller / responder 首次上手主路径应以 `delegated-execution-client` 为准
+- 不应把这里的条目理解为“本地 client onboarding 必须先经过 platform 审核”
 
 - `done`：caller 远程请求入口
 - `done`：caller 后台收件与事件同步循环

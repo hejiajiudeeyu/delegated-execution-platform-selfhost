@@ -15,6 +15,12 @@ Current protocol/runtime baseline:
 - lower-level service deployment: use `deploy/platform` and `deploy/relay`
 - end-user client installation is no longer the concern of this repository
 
+Current scope note:
+
+- the current `delexec-ops` product path is local-first caller / responder / hotline management
+- use this repository when you need operator deployment, shared catalog infrastructure, or later self-hosted publishing flows
+- do not treat platform bootstrap as a prerequisite for first local hotline registration on an end-user machine
+
 ## Supported Profiles
 
 - `deploy/public-stack`: recommended operator-facing stack

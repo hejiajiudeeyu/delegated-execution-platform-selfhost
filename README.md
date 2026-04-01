@@ -79,6 +79,12 @@ This repository owns the operator-facing self-hosted deployment surface:
 
 This repository does not own the protocol truth source or the end-user `delexec-ops` client experience.
 
+Current product boundary:
+
+- the `delexec-ops` client currently focuses on local caller / responder / hotline management first
+- first-use local registration and self-call do not require this repository
+- self-hosted platform deployment and future community / catalog publishing remain the responsibility of this repository
+
 ## AI Collaboration
 
 - `CLAUDE.md` defines the repository-specific development and validation rules.
