@@ -269,6 +269,44 @@ function requireSession(req, res, state, runtime) {
   return session;
 }
 
+async function proxyRelayRequest(state, runtime, req, res, targetPathname, search) {
+  const session = requireSession(req, res, state, runtime);
+  if (!session) {
+    return;
+  }
+  const baseUrl = state.config.transport_relay?.base_url;
+  if (!baseUrl) {
+    sendError(res, 409, "RELAY_NOT_CONFIGURED", "transport_relay.base_url is not configured");
+    return;
+  }
+  const targetUrl = new URL(`${targetPathname || "/"}${search || ""}`, baseUrl);
+  const method = req.method || "GET";
+  const headers = {};
+  const body = ["GET", "HEAD"].includes(method) ? undefined : JSON.stringify(await parseJsonBody(req));
+  if (body !== undefined) {
+    headers["content-type"] = "application/json; charset=utf-8";
+  }
+  let response;
+  try {
+    response = await fetch(targetUrl, { method, headers, body });
+  } catch (error) {
+    sendError(res, 502, "RELAY_UNREACHABLE", error instanceof Error ? error.message : "relay_unreachable", {
+      base_url: baseUrl
+    });
+    return;
+  }
+  const text = await response.text();
+  let parsed = null;
+  if (text) {
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      parsed = { raw: text };
+    }
+  }
+  sendJson(res, response.status, parsed);
+}
+
 async function proxyRequest(state, runtime, req, res, targetPathname, search) {
   const session = requireSession(req, res, state, runtime);
   if (!session) {
@@ -447,6 +485,10 @@ export function createPlatformConsoleGatewayServer() {
           platform_url: state.config.platform_console?.base_url || state.config.platform?.base_url || null,
           api_key_configured: Boolean(readResolvedOpsSecrets(state, runtime.unlockedSecrets).platform_admin_api_key)
         });
+        return;
+      }
+      if (pathname.startsWith("/proxy/relay/")) {
+        await proxyRelayRequest(state, runtime, req, res, pathname.slice("/proxy/relay".length), url.search);
         return;
       }
       if (pathname.startsWith("/proxy/")) {

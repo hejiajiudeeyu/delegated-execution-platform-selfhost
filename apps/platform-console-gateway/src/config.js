@@ -31,6 +31,7 @@ function normalizedString(value) {
 
 function createDefaultGatewayConfig(env = {}) {
   const baseUrl = env.PLATFORM_API_BASE_URL || process.env.PLATFORM_API_BASE_URL || "http://127.0.0.1:8080";
+  const relayBaseUrl = env.TRANSPORT_RELAY_BASE_URL || process.env.TRANSPORT_RELAY_BASE_URL || "http://127.0.0.1:8090";
   return {
     platform: {
       base_url: baseUrl
@@ -38,6 +39,9 @@ function createDefaultGatewayConfig(env = {}) {
     platform_console: {
       base_url: baseUrl,
       admin_api_key: null
+    },
+    transport_relay: {
+      base_url: relayBaseUrl
     },
     caller: {
       api_key: null,
@@ -56,6 +60,7 @@ export function ensureOpsState() {
 
   config.platform ||= { base_url: env.PLATFORM_API_BASE_URL || process.env.PLATFORM_API_BASE_URL || "http://127.0.0.1:8080" };
   config.platform_console ||= { base_url: config.platform.base_url, admin_api_key: null };
+  config.transport_relay ||= { base_url: env.TRANSPORT_RELAY_BASE_URL || process.env.TRANSPORT_RELAY_BASE_URL || "http://127.0.0.1:8090" };
   config.caller ||= { api_key: null, api_key_configured: false };
   config.caller.api_key = normalizedString(config.caller.api_key);
   config.caller.api_key_configured = Boolean(
