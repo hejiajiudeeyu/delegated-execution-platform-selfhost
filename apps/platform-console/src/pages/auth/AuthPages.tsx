@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { Shield, LockKeyhole } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,6 +57,8 @@ function BrandBackdrop() {
 export function SetupPage() {
   const { setup } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const next = (location.state as { next?: string } | null)?.next ?? "/"
   const [passphrase, setPassphrase] = useState("")
   const [confirm, setConfirm] = useState("")
   const [bootstrapSecret, setBootstrapSecret] = useState("")
@@ -70,7 +72,7 @@ export function SetupPage() {
     setLoading(true)
     const result = await setup(passphrase, bootstrapSecret || undefined)
     setLoading(false)
-    if (result.ok) navigate("/")
+    if (result.ok) navigate(next, { replace: true })
     else setError(result.error ?? "Setup 失败")
   }
 
@@ -111,6 +113,8 @@ export function SetupPage() {
 export function UnlockPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  const next = (location.state as { next?: string } | null)?.next ?? "/"
   const [passphrase, setPassphrase] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -120,7 +124,7 @@ export function UnlockPage() {
     setLoading(true)
     const result = await login(passphrase)
     setLoading(false)
-    if (result.ok) navigate("/")
+    if (result.ok) navigate(next, { replace: true })
     else setError(result.error ?? "口令错误")
   }
 

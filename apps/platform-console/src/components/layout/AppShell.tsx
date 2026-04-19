@@ -1,5 +1,5 @@
 import { NavLink, useNavigate, Outlet } from "react-router-dom"
-import { Activity, Users, BookOpen, List, ClipboardList, Star, LogOut, RefreshCw, Shield } from "lucide-react"
+import { Activity, Users, BookOpen, List, ClipboardList, Star, LogOut, RefreshCw, Shield, Wifi } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/components/ui/utils"
 import { useAuth } from "@/hooks/useAuth"
@@ -54,6 +54,7 @@ const NAV = [
   { label: "Request 监控", path: "/requests", icon: List },
   { label: "Audit 日志", path: "/audit", icon: ClipboardList },
   { label: "Review 队列", path: "/reviews", icon: Star },
+  { label: "Relay 监控", path: "/relay", icon: Wifi },
 ]
 
 function Sidebar() {
