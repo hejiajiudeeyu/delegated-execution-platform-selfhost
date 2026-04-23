@@ -1,10 +1,29 @@
 # delegated-execution-platform-selfhost
 
-Self-hosted platform, relay, and operator console for delegated execution.
-
-Deploy the platform with Docker Compose to provide a Hotline catalog, request routing, Responder registry, and an operator web console for your team or organization.
+> **Part of [CALL ANYTHING](https://callanything.xyz/)** — the open protocol that lets any AI agent dial any external capability.
+> This repository is the **self-hosted platform & operator console**: deploy with `docker compose` to run your own Hotline catalog, request relay, Responder registry and review queue — for a team, an organization, or a private OPC marketplace.
+>
+> 📖 [Docs](https://callanything.xyz/docs/) · [Glossary](https://callanything.xyz/glossary/) · [FAQ](https://callanything.xyz/faq/) · [Blog](https://callanything.xyz/blog/) · [Marketplace](https://callanything.xyz/marketplace/) · [Pricing](https://callanything.xyz/pricing/)
 
 > 中文版：[README.zh-CN.md](README.zh-CN.md)
+
+---
+
+## What is CALL ANYTHING?
+
+CALL ANYTHING is an open protocol for **delegated execution** between AI agents and external capability providers. The mental model:
+
+- **Hotline** — one standardized contract that bundles identity, billing, approval, observability and routing into a single dial-able capability. Not an API, not an MCP server, not a SaaS — a Hotline can be **exposed as** any of those, but the product form lives in the protocol.
+- **Caller / Responder** — every Hotline call has two ends. A Caller is usually an AI agent or agent team. A Responder is usually a **One-Person Company (OPC)** — an individual turning private expertise into a 7×24 agent-callable, per-call-billable service. See [OPC × Hotline](https://callanything.xyz/blog/2026-04-opc-and-hotline/).
+- **This platform** is what an operator runs to host a private or community-scale Hotline marketplace — Hotline catalog, Responder review, request routing, transport relay, an operator console for approvals and observability. The public marketplace at [callanything.xyz/marketplace](https://callanything.xyz/marketplace/) runs the same stack you can self-host here.
+
+You want this repo if you are: a team running an internal agent-tool catalog, an OPC collective bootstrapping a niche marketplace, an enterprise that needs the catalog inside its own VPC, or a researcher reproducing the protocol end-to-end. If you only want to publish or call a single Hotline locally, start with the client repo first.
+
+Companion repositories:
+
+- 📐 **Protocol truth-source** — [delegated-execution-protocol](https://github.com/hejiajiudeeyu/delegated-execution-protocol) (publishes `@delexec/contracts`)
+- 🛠️ **End-user CLI & local runtime** — [delegated-execution-client](https://github.com/hejiajiudeeyu/delegated-execution-client) (`@delexec/ops` + `delexec-ops` CLI)
+- 🌐 **Public marketplace, docs, brand site** — [callanything.xyz](https://callanything.xyz/)
 
 ---
 

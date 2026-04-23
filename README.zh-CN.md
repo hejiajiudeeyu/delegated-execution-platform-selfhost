@@ -3,9 +3,28 @@
 > 英文版：[README.md](README.md)
 > 说明：中文文档为准。
 
-委托执行的自托管平台、中继与运维控制台。
+> **属于 [CALL ANYTHING](https://callanything.xyz/)** —— 让任意 AI Agent 调用任意外部能力的开放协议。
+> 本仓库是 **自托管平台与运维控制台**：用 `docker compose` 一键部署，把 Hotline 目录、请求中继、Responder 注册表、审核队列跑在你自己的机器上 —— 适合团队、组织，或一个私有 OPC 协作网络。
+>
+> 📖 [Docs](https://callanything.xyz/docs/) · [术语表](https://callanything.xyz/glossary/) · [FAQ](https://callanything.xyz/faq/) · [Blog](https://callanything.xyz/blog/) · [Marketplace](https://callanything.xyz/marketplace/) · [Pricing](https://callanything.xyz/pricing/)
 
-通过 Docker Compose 部署平台，为你的团队或组织提供 Hotline 目录、请求路由、Responder 注册表及运维 Web 控制台。
+---
+
+## 关于 CALL ANYTHING
+
+CALL ANYTHING 是一套面向 **AI Agent 委托外部能力（delegated execution）** 的开放协议。心智模型：
+
+- **Hotline** —— 把身份、计费、审批、可观测、路由全部固化在协议里的标准化能力契约。它不是 API、不是 MCP server、不是 SaaS —— 但它**可以暴露成**这些形态之一，因为 Hotline 是产品形态，那些只是接入面。
+- **Caller / Responder** —— 每一通 Hotline 调用的两端。Caller 通常是 AI Agent 或 Agent 团队；Responder 通常是 **超级个体（OPC, One-Person Company）** —— 把私域专长打包成 7×24 在线、按次结算、Agent 可调用的服务实体的个人。延伸阅读：[OPC × Hotline](https://callanything.xyz/blog/2026-04-opc-and-hotline/)。
+- **本平台**就是运营方跑起来托管私有或社区级 Hotline 市场的那一套：Hotline catalog、Responder 审核、请求路由、传输中继、运维侧的审批与可观测控制台。公开 marketplace [callanything.xyz/marketplace](https://callanything.xyz/marketplace/) 跑的就是同一套你可以自托管的栈。
+
+你需要这个仓库，如果你是：跑内部 Agent 工具目录的团队、孵化垂直 marketplace 的 OPC 集体、把 catalog 放进自家 VPC 的企业，或想端到端复现协议的研究者。如果你只是想在本地发一根 Hotline 或调一根 Hotline，请先从 client 仓库开始。
+
+兄弟仓库：
+
+- 📐 **协议真实来源** —— [delegated-execution-protocol](https://github.com/hejiajiudeeyu/delegated-execution-protocol)（发布 `@delexec/contracts`）
+- 🛠️ **终端用户 CLI 与本地运行时** —— [delegated-execution-client](https://github.com/hejiajiudeeyu/delegated-execution-client)（`@delexec/ops` + `delexec-ops` CLI）
+- 🌐 **公开 Marketplace、文档、品牌站** —— [callanything.xyz](https://callanything.xyz/)
 
 ---
 
