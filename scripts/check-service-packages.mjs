@@ -27,6 +27,10 @@ const LIBRARY_PACKAGES = [
   {
     workspace: "@delexec/postgres-store",
     assertExpression: '(mod) => typeof mod.createPostgresSnapshotStore === "function"'
+  },
+  {
+    workspace: "@delexec/billing-store",
+    assertExpression: '(mod) => typeof mod.createBillingStore === "function" && typeof mod.boundaryFor === "function"'
   }
 ];
 

@@ -1,0 +1,23 @@
+{
+  "name": "@delexec/billing-store",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Billing and tenant balance persistence for delegated execution platform services",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./errors": "./src/errors.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "cd ../.. && ./node_modules/.bin/vitest run --config tests/config/vitest.unit.config.mjs tests/unit/billing-store.unit.test.js"
+  },
+  "dependencies": {
+    "pg": "^8.20.0"
+  }
+}
