@@ -14,6 +14,83 @@ function targetTypeLabel(targetType) {
   return targetType || "target";
 }
 
+function formatPoints(cents) {
+  const value = Number(cents || 0) / 100;
+  return `${value.toFixed(2)} PTS`;
+}
+
+export function renderBillingReadinessNotice() {
+  return `
+    <article class="item-card">
+      <div class="item-head">
+        <div>
+          <strong>Billing P-1 M1.2 admin-only</strong>
+          <p>Operators can inspect tenant balance, record manual recharges, and browse ledger rows.</p>
+        </div>
+        <span class="status pending">not end-user ready</span>
+      </div>
+      <p class="meta">This surface does not enable client-facing billing, spend enforcement, withdrawal, or fiat settlement.</p>
+    </article>
+  `;
+}
+
+export function renderBillingBalanceSummary(balance) {
+  if (!balance) {
+    return `<div class="empty">No billing tenant loaded.</div>`;
+  }
+  const windows = Array.isArray(balance.windows) ? balance.windows : [];
+  return `
+    <article class="item-card">
+      <div class="item-head">
+        <div>
+          <strong>${balance.tenant_id}</strong>
+          <p>${formatPoints(balance.credit_balance_cents)} available · ${formatPoints(balance.pending_credit_cents)} pending</p>
+        </div>
+        <span class="status healthy">${balance.currency || "PTS"}</span>
+      </div>
+      <p class="meta">Mode: ${balance.credit_mode || "prepaid"} · Rate limit: ${balance.rate_limit_per_second ?? "n/a"}/s</p>
+      <div class="stack">
+        ${
+          windows.length
+            ? windows
+                .map(
+                  (window) => `
+                    <div class="item-card">
+                      <strong>${window.window_kind}</strong>
+                      <p class="meta">caller used ${formatPoints(window.used_as_caller_cents)} · responder earned ${formatPoints(window.earned_as_responder_cents)} · hard block ${window.hard_block_on_exceed ? "on" : "off"}</p>
+                    </div>
+                  `
+                )
+                .join("")
+            : `<div class="empty">No quota windows returned.</div>`
+        }
+      </div>
+    </article>
+  `;
+}
+
+export function renderBillingLedgerSummary(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return `<div class="empty">No billing ledger rows found.</div>`;
+  }
+  return items
+    .map(
+      (item) => `
+        <article class="item-card">
+          <div class="item-head">
+            <div>
+              <strong>${item.kind || "ledger"}</strong>
+              <p>${item.ledger_id || "unidentified ledger row"} · ${item.direction || "unknown direction"}</p>
+            </div>
+            <span class="status active">${formatPoints(item.amount_cents)}</span>
+          </div>
+          <p class="meta">${item.recorded_at || "n/a"} · balance after ${formatPoints(item.new_balance_cents)}</p>
+        </article>
+      `
+    )
+    .join("");
+}
+
 export function renderEntityCardsMarkup(items, type) {
   const labels = entityLabels(type);
   if (!Array.isArray(items) || items.length === 0) {

@@ -9,6 +9,7 @@ import { OverviewPage } from "@/pages/OverviewPage"
 import { RespondersPage, HotlinesAdminPage } from "@/pages/AdminListPage"
 import { RequestsPage, AuditPage, ReviewsPage } from "@/pages/MonitorPages"
 import { RelayPage } from "@/pages/RelayPage"
+import { BillingPage } from "@/pages/BillingPage"
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { status, loading } = useAuth()
@@ -62,6 +63,7 @@ function AppRoutes() {
         <Route path="requests" element={<RequestsPage />} />
         <Route path="audit" element={<AuditPage />} />
         <Route path="reviews" element={<ReviewsPage />} />
+        <Route path="billing" element={<BillingPage />} />
         <Route path="relay" element={<RelayPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

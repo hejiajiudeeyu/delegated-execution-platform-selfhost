@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   renderAdminRequestCardsMarkup,
   renderAuditCardsMarkup,
+  renderBillingBalanceSummary,
+  renderBillingLedgerSummary,
+  renderBillingReadinessNotice,
   renderDetailSummary,
   renderEntityCardsMarkup,
   renderHistorySummary,
@@ -29,5 +32,41 @@ describe("platform-console view models", () => {
     expect(
       renderReviewActionSummary({ responder_id: "responder_a", status: "disabled" }, "manual check", [{ reason: "policy" }])
     ).toContain("manual check");
+  });
+
+  it("renders billing admin summaries with an explicit admin-only readiness boundary", () => {
+    const balance = {
+      tenant_id: "tenant_alpha",
+      credit_balance_cents: 12500,
+      pending_credit_cents: 0,
+      currency: "PTS",
+      credit_mode: "prepaid",
+      rate_limit_per_second: 2,
+      windows: [
+        {
+          window_kind: "daily",
+          used_as_caller_cents: 100,
+          earned_as_responder_cents: 0,
+          hard_block_on_exceed: false
+        }
+      ]
+    };
+
+    expect(renderBillingReadinessNotice()).toContain("admin-only");
+    expect(renderBillingBalanceSummary(balance)).toContain("tenant_alpha");
+    expect(renderBillingBalanceSummary(balance)).toContain("125.00 PTS");
+    expect(
+      renderBillingLedgerSummary([
+        {
+          ledger_id: "ldg_1",
+          kind: "recharge",
+          direction: "system",
+          amount_cents: 12500,
+          recorded_at: "2026-06-06T00:00:00.000Z",
+          new_balance_cents: 12500
+        }
+      ])
+    ).toContain("recharge");
+    expect(renderBillingLedgerSummary([])).toContain("No billing ledger rows");
   });
 });
