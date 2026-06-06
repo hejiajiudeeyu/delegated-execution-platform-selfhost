@@ -10,6 +10,7 @@ This guide is the operator-facing quickstart for exposing the current platform s
 - `postgres`
 - `relay`
 - `platform-console-gateway`
+- `platform-console` static UI served by `platform-console-gateway`
 - `caddy` edge ingress
 
 It is the recommended starting point when you want a single public ingress shape rather than composing `deploy/platform` and `deploy/relay` manually.
@@ -24,9 +25,11 @@ Prepare:
 - a persistent volume policy for PostgreSQL, relay, and gateway data
 - a strong `PLATFORM_ADMIN_API_KEY`
 
-Current limitation:
+Operator surface:
 
-- `platform-console` frontend is not bundled into `public-stack` yet
+- `platform-console` static UI is bundled into `public-stack` through
+  `platform-console-gateway`
+- the stack exposes the operator UI under `/console/`
 - the stack exposes the operator gateway API under `/gateway/*`
 
 ## Quickstart
@@ -49,6 +52,7 @@ curl -fsS "${PUBLIC_SITE_ADDRESS%/}/healthz"
 curl -fsS "${PUBLIC_SITE_ADDRESS%/}/platform/healthz"
 curl -fsS "${PUBLIC_SITE_ADDRESS%/}/relay/healthz"
 curl -fsS "${PUBLIC_SITE_ADDRESS%/}/gateway/healthz"
+curl -fsS "${PUBLIC_SITE_ADDRESS%/}/console/"
 ```
 
 ## Public Routes
@@ -56,6 +60,7 @@ curl -fsS "${PUBLIC_SITE_ADDRESS%/}/gateway/healthz"
 - `/platform/*` -> `platform-api`
 - `/relay/*` -> `relay`
 - `/gateway/*` -> `platform-console-gateway`
+- `/console/*` -> `platform-console-gateway` static console assets
 
 ## Bootstrap And Visibility Defaults
 
@@ -70,11 +75,12 @@ If you need prewired demo actors, use `deploy/all-in-one` instead of turning `pu
 
 After the stack is healthy:
 
-1. initialize the gateway local secret store
-2. store `PLATFORM_ADMIN_API_KEY` through the gateway session flow
-3. verify an authenticated proxy call succeeds
-4. create or approve the first real responder and hotline
-5. confirm the catalog stays empty until both responder and hotline are `approved + enabled`
+1. open `${PUBLIC_SITE_ADDRESS%/}/console/`
+2. initialize the gateway local secret store
+3. store `PLATFORM_ADMIN_API_KEY` through the gateway session flow
+4. verify an authenticated proxy call succeeds
+5. create or approve the first real responder and hotline
+6. confirm the catalog stays empty until both responder and hotline are `approved + enabled`
 
 Minimal gateway flow:
 
@@ -82,7 +88,7 @@ Minimal gateway flow:
 BASE="${PUBLIC_SITE_ADDRESS%/}"
 TOKEN=$(curl -fsS -X POST "$BASE/gateway/session/setup" \
   -H 'content-type: application/json' \
-  -d '{"passphrase":"change-me-now"}' | jq -r '.token')
+  -d "{\"passphrase\":\"change-me-now\",\"bootstrap_secret\":\"$PLATFORM_CONSOLE_BOOTSTRAP_SECRET\"}" | jq -r '.token')
 
 curl -fsS -X PUT "$BASE/gateway/credentials/platform-admin" \
   -H 'content-type: application/json' \
@@ -108,6 +114,7 @@ Recommended checks:
 
 - edge ingress health
 - platform / relay / gateway route health
+- bundled `/console/` route reachability
 - gateway session setup
 - admin credential persistence through the gateway
 - at least one proxied admin API call
