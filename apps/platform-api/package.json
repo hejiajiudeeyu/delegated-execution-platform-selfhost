@@ -8,6 +8,7 @@
     "croc-platform-api": "src/server.js"
   },
   "bundleDependencies": [
+    "@delexec/billing-store",
     "@delexec/postgres-store"
   ],
   "main": "src/server.js",
@@ -34,6 +35,7 @@
     "selfhost"
   ],
   "dependencies": {
+    "@delexec/billing-store": "0.1.0",
     "@delexec/contracts": "^0.1.0",
     "@delexec/postgres-store": "0.1.0",
     "@delexec/runtime-utils": "0.1.0",

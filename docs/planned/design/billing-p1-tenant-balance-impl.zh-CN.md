@@ -622,7 +622,7 @@ P-1 阶段：
 
 - v0.1 token claims 不变。
 - 平台后端 worker（不是 client）负责把 caller token 中的 `tenant_id` 与 `tenant_balance.tenant_id` 关联——这层 mapping 是 platform 内部职责，本 RFC 不在 endpoint 上暴露。
-- caller token 不需要 `billing.*` claims；本 RFC 上线后 caller / responder 可以查自己的余额，但不能用 token 直接花钱（花钱链路属 P-2）。
+- caller token 不需要 `billing.*` claims。P-1 第一段已落地 API/read-model 是 admin-only 的 `/v1/admin/billing/*`：operator 可以创建 tenant、查看 balance、记录人工 recharge、查看 ledger。caller / responder 自助查余额仍属于后续 P-1/P-2 surface，且当前 token 仍不能直接花钱。
 
 ### 9.5 `currency` 字段的实现层立场
 
@@ -642,11 +642,11 @@ P-1 阶段：
 - `ensure_window_fresh` 的 daily / monthly 翻页 / `total` 不翻页
 - `recharge` 幂等：同 `recharge_id` 第二次返回上次结果
 - `recharge` 拒绝 caller / responder token；接受 ops-admin token
-- `GET /v1/tenants/{tenant_id}/ledger` 的 keyset 分页正确性 + `kind` filter
+- `GET /v1/admin/billing/tenants/{tenant_id}/ledger` 的 keyset 分页正确性 + `kind` filter
 
 ### 10.2 契约测试（端到端）
 
-- 走真 PostgreSQL，跑 §1.3 第 2 条要求的 `GET balance` / `GET ledger` / `POST recharge` 三 endpoint。
+- 走真 PostgreSQL，跑 §1.3 第 2 条要求的 admin-only `GET balance` / `GET ledger` / `POST recharge` 三 endpoint。
 - 验证 schema 与 §4 完全一致（response 字段集合、type、是否可空）。
 - 校验 `prev/new_balance_cents` 在多笔 recharge 后的连续性。
 
@@ -659,7 +659,7 @@ P-1 阶段：
 ### 10.4 回滚路径
 
 - migration 回滚：本 RFC 引入的 4 张表全部 `DROP`，不影响 v0.1 surface。
-- 应用回滚：P-1 endpoint `GET balance` / `GET ledger` / `POST recharge` 撤下后，caller / responder 流量不受影响（v0.1 没有任何调用方依赖它们）。
+- 应用回滚：P-1 admin endpoint `GET balance` / `GET ledger` / `POST recharge` 撤下后，caller / responder 流量不受影响（v0.1 没有任何调用方依赖它们）。
 
 ---
 
@@ -670,7 +670,7 @@ P-1 阶段内部 4 个 milestone：
 | milestone | 主题 | 解锁 |
 | :--- | :--- | :--- |
 | M1.1 | DB schema migration + 单元测试 | 表存在；apply_balance_delta 可工作 |
-| M1.2 | `GET /v1/tenants/{tenant_id}/balance` + ledger insert | 用户能通过自己的 token 查到自己的余额 |
+| M1.2 | admin-only `/v1/admin/billing/*` tenant、balance、recharge、ledger read model | operator 能检查并调整 billing state，但不暴露 client-facing 花费语义 |
 | M1.3 | quota lazy-reset + `ERR_QUOTA_EXCEEDED` | 业务层准备好接 quota（即使 default off） |
 | M1.4 | 监控指标 + 不可变性自检 daemon | 上 production 的最后一关 |
 

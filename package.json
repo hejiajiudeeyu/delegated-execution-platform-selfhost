@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "test": "npm run test:unit && npm run test:integration",
-    "test:integration": "vitest run --config tests/config/vitest.integration.config.mjs tests/integration/platform-console-gateway.integration.test.js tests/integration/relay-http.integration.test.js tests/integration/billing-store.integration.test.js",
+    "test:integration": "vitest run --config tests/config/vitest.integration.config.mjs tests/integration/platform-console-gateway.integration.test.js tests/integration/relay-http.integration.test.js tests/integration/billing-store.integration.test.js tests/integration/platform-api-billing.integration.test.js",
     "test:e2e": "node tests/reporters/reset-flow-report.mjs && vitest run --config tests/config/vitest.e2e.config.mjs && node tests/reporters/flow-issue-reporter.mjs",
     "test:service:packages": "node scripts/check-service-packages.mjs",
     "test:deploy:config": "node scripts/check-deploy-configs.mjs",

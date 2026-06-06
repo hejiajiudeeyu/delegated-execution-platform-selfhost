@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { buildStructuredError, canonicalizeResultPackageForSignature } from "@delexec/contracts";
+import { createBillingStore } from "@delexec/billing-store";
 import { createPostgresSnapshotStore } from "@delexec/postgres-store";
 import { createSqliteSnapshotStore } from "@delexec/sqlite-store";
 import { buildOpsEnvSearchPaths, loadEnvFiles } from "@delexec/runtime-utils";
@@ -78,6 +79,25 @@ function sendJson(res, statusCode, data) {
 
 function sendError(res, statusCode, code, message, { retryable, ...extra } = {}) {
   sendJson(res, statusCode, buildStructuredError(code, message, { retryable, ...extra }));
+}
+
+function sendBillingError(res, error) {
+  if (error?.code && error?.httpStatus) {
+    sendError(res, error.httpStatus, error.code, error.message, {
+      retryable: error.retryable === undefined ? false : error.retryable,
+      reason: error.reason
+    });
+    return;
+  }
+  if (error instanceof RangeError || error instanceof TypeError) {
+    sendError(res, 400, "ERR_BILLING_REQUEST_INVALID", error.message, {
+      retryable: false
+    });
+    return;
+  }
+  sendError(res, 500, "ERR_BILLING_INTERNAL", "billing request failed", {
+    retryable: true
+  });
 }
 
 function encodeBase64Url(input) {
@@ -1122,6 +1142,7 @@ export function createPlatformState(options = {}) {
   return {
     tokenSecret,
     tokenTtlSeconds,
+    billingStore: options.billingStore || null,
     limits: options.limits || buildPlatformLimits(),
     users,
     apiKeys,
@@ -1956,6 +1977,16 @@ export function createPlatformServer({
     return false;
   }
 
+  function requireBillingStore(res) {
+    if (state.billingStore) {
+      return state.billingStore;
+    }
+    sendError(res, 503, "BILLING_STORE_UNAVAILABLE", "billing store is not configured", {
+      retryable: true
+    });
+    return null;
+  }
+
   function renderPrometheusMetrics() {
     const lines = [
       "# HELP rsp_platform_requests_total Total requests tracked by the platform state.",
@@ -2657,6 +2688,125 @@ export function createPlatformServer({
         return;
       }
 
+      if (method === "POST" && pathname === "/v1/admin/billing/tenants") {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const billingStore = requireBillingStore(res);
+        if (!billingStore) {
+          return;
+        }
+        const body = await parseJsonBody(req);
+        if (!body.tenant_id) {
+          sendError(res, 400, "ERR_BILLING_REQUEST_INVALID", "tenant_id is required", {
+            retryable: false
+          });
+          return;
+        }
+        try {
+          const balance = await billingStore.createTenant(body.tenant_id, body.registered_at || new Date());
+          sendJson(res, 201, {
+            tenant_id: balance.tenant_id,
+            balance
+          });
+        } catch (error) {
+          sendBillingError(res, error);
+        }
+        return;
+      }
+
+      const adminBillingBalanceMatch = pathname.match(/^\/v1\/admin\/billing\/tenants\/([^/]+)\/balance$/);
+      if (method === "GET" && adminBillingBalanceMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const billingStore = requireBillingStore(res);
+        if (!billingStore) {
+          return;
+        }
+        const tenantId = decodeURIComponent(adminBillingBalanceMatch[1]);
+        try {
+          const balance = await billingStore.getBalance(tenantId, {
+            nowUtc: url.searchParams.get("now_utc") || new Date()
+          });
+          sendJson(res, 200, {
+            tenant_id: balance.tenant_id,
+            balance
+          });
+        } catch (error) {
+          sendBillingError(res, error);
+        }
+        return;
+      }
+
+      const adminBillingLedgerMatch = pathname.match(/^\/v1\/admin\/billing\/tenants\/([^/]+)\/ledger$/);
+      if (method === "GET" && adminBillingLedgerMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const billingStore = requireBillingStore(res);
+        if (!billingStore) {
+          return;
+        }
+        const tenantId = decodeURIComponent(adminBillingLedgerMatch[1]);
+        try {
+          const ledger = await billingStore.getLedger(tenantId, {
+            limit: url.searchParams.get("limit") || undefined,
+            cursor: url.searchParams.get("cursor") || undefined,
+            kind: url.searchParams.getAll("kind"),
+            since: url.searchParams.get("since") || undefined
+          });
+          sendJson(res, 200, {
+            tenant_id: tenantId,
+            ...ledger
+          });
+        } catch (error) {
+          sendBillingError(res, error);
+        }
+        return;
+      }
+
+      const adminBillingRechargeMatch = pathname.match(/^\/v1\/admin\/billing\/tenants\/([^/]+)\/recharges$/);
+      if (method === "POST" && adminBillingRechargeMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const billingStore = requireBillingStore(res);
+        if (!billingStore) {
+          return;
+        }
+        const tenantId = decodeURIComponent(adminBillingRechargeMatch[1]);
+        const body = await parseJsonBody(req);
+        if (!body.recharge_id || body.amount_cents === undefined) {
+          sendError(res, 400, "ERR_BILLING_REQUEST_INVALID", "recharge_id and amount_cents are required", {
+            retryable: false
+          });
+          return;
+        }
+        try {
+          const recharge = await billingStore.createRecharge({
+            recharge_id: body.recharge_id,
+            tenant_id: tenantId,
+            amount_cents: body.amount_cents,
+            currency: body.currency || "PTS",
+            provider: body.provider || null,
+            external_reference: body.external_reference || null,
+            recorded_at: body.recorded_at || new Date()
+          });
+          sendJson(res, recharge.httpStatus || 201, {
+            tenant_id: tenantId,
+            recharge
+          });
+        } catch (error) {
+          sendBillingError(res, error);
+        }
+        return;
+      }
+
       if (method === "GET" && pathname === "/v2/admin/responders") {
         const auth = requireOperator(req, res, state);
         if (!auth) {
@@ -3328,14 +3478,27 @@ async function createOptionalPersistence(serviceName) {
   return store;
 }
 
+async function createOptionalBillingStore() {
+  const connectionString =
+    process.env.BILLING_DATABASE_URL || process.env.PLATFORM_DATABASE_URL || process.env.DATABASE_URL || null;
+  if (!connectionString) {
+    return null;
+  }
+  const store = await createBillingStore({ connectionString });
+  await store.migrate();
+  return store;
+}
+
 if (isDirectRun()) {
   const port = Number(process.env.PORT || 8080);
   const serviceName = process.env.SERVICE_NAME || "platform-api";
   if (!process.env.TOKEN_SECRET) {
     throw new Error("platform_token_secret_required");
   }
+  const billingStore = await createOptionalBillingStore();
   const state = createPlatformState({
-    tokenSecret: process.env.TOKEN_SECRET
+    tokenSecret: process.env.TOKEN_SECRET,
+    billingStore
   });
   const persistence = await createOptionalPersistence(serviceName);
   if (persistence) {
@@ -3357,6 +3520,9 @@ if (isDirectRun()) {
     if (persistence) {
       void persistence.saveSnapshot(serializePlatformState(state));
       void persistence.close();
+    }
+    if (billingStore) {
+      void billingStore.close();
     }
   });
 }

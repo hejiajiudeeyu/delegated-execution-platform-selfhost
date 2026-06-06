@@ -623,7 +623,7 @@ In P-1:
 
 - v0.1 token claims do not change.
 - The platform back-end worker (not the client) is responsible for tying caller-token `tenant_id` to `tenant_balance.tenant_id`; this mapping is platform-internal and not exposed at the endpoint level.
-- Caller tokens do not need any `billing.*` claims; after this RFC ships, callers / responders can read their balance but cannot spend it through the token (that path belongs to P-2).
+- Caller tokens do not need any `billing.*` claims. The first shipped P-1 API/read-model slice is admin-only (`/v1/admin/billing/*`) so operators can create tenants, inspect balances, record manual recharges, and inspect ledger rows. Caller / responder self-service balance views remain a later P-1/P-2 surface and cannot be used to spend through the token yet.
 
 ### 9.5 Implementation stance for `currency`
 
@@ -643,11 +643,11 @@ At minimum:
 - `ensure_window_fresh` daily / monthly roll / `total` no-roll
 - `recharge` idempotency: same `recharge_id` second call returns last result
 - `recharge` rejects caller / responder tokens; accepts ops-admin tokens
-- `GET /v1/tenants/{tenant_id}/ledger` keyset pagination correctness + `kind` filter
+- `GET /v1/admin/billing/tenants/{tenant_id}/ledger` keyset pagination correctness + `kind` filter
 
 ### 10.2 Contract tests (end-to-end)
 
-- Real PostgreSQL; run §1.3 #2's `GET balance` / `GET ledger` / `POST recharge` trio.
+- Real PostgreSQL; run §1.3 #2's admin-only `GET balance` / `GET ledger` / `POST recharge` trio.
 - Verify the schema fully matches §4 (response field set, type, nullability).
 - Validate `prev/new_balance_cents` continuity across multiple recharges.
 
@@ -660,7 +660,7 @@ At minimum:
 ### 10.4 Rollback path
 
 - Migration rollback: this RFC's four tables are dropped; no impact to v0.1 surface.
-- Application rollback: pulling the P-1 endpoints `GET balance` / `GET ledger` / `POST recharge` does not affect caller / responder traffic (no v0.1 caller depends on them).
+- Application rollback: pulling the P-1 admin endpoints `GET balance` / `GET ledger` / `POST recharge` does not affect caller / responder traffic (no v0.1 caller depends on them).
 
 ---
 
@@ -671,7 +671,7 @@ P-1 internal milestones (four):
 | Milestone | Theme | Unlocks |
 | :--- | :--- | :--- |
 | M1.1 | DB schema migration + unit tests | tables exist; `apply_balance_delta` works |
-| M1.2 | `GET /v1/tenants/{tenant_id}/balance` + ledger inserts | users can read their balance using their own token |
+| M1.2 | admin-only `/v1/admin/billing/*` tenant, balance, recharge, and ledger read model | operators can inspect and adjust billing state without exposing client-facing spend semantics |
 | M1.3 | quota lazy-reset + `ERR_QUOTA_EXCEEDED` | business layer ready to lean on quota (even if default off) |
 | M1.4 | monitoring metrics + invariant self-check daemon | the last gate before production |
 
