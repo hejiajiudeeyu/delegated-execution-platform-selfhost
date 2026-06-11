@@ -4,7 +4,16 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildStructuredError, canonicalizeResultPackageForSignature } from "@delexec/contracts";
+import {
+  BILLING_ERROR_CODE,
+  BILLING_EVENT,
+  PRICING_MODEL,
+  buildStructuredError,
+  canonicalizeResultPackageForSignature,
+  validateBillingUsage,
+  validatePricingHint,
+  validateTaskBillingClaims
+} from "@delexec/contracts";
 import { createBillingStore } from "@delexec/billing-store";
 import { createPostgresSnapshotStore } from "@delexec/postgres-store";
 import { createSqliteSnapshotStore } from "@delexec/sqlite-store";
@@ -351,6 +360,250 @@ function buildPlatformLimits() {
     telemetryHistory: readNumberEnv(process.env.PLATFORM_TELEMETRY_HISTORY_LIMIT, DEFAULT_TELEMETRY_HISTORY_LIMIT),
     hotlinesPerResponder: readNumberEnv(process.env.PLATFORM_HOTLINE_QUOTA_PER_RESPONDER, DEFAULT_HOTLINE_QUOTA_PER_RESPONDER)
   };
+}
+
+function normalizeBillingEnforcement(value) {
+  return value === "enforced" ? "enforced" : "disabled";
+}
+
+function isBillingEnforced(state) {
+  return normalizeBillingEnforcement(state.billingEnforcement) === "enforced";
+}
+
+function pricingHintMaxCharge(pricingHint) {
+  if (!pricingHint || typeof pricingHint !== "object") {
+    return 0;
+  }
+  if (Number.isSafeInteger(pricingHint.max_total_cents)) {
+    return pricingHint.max_total_cents;
+  }
+  if (pricingHint.pricing_model === PRICING_MODEL.FIXED_PRICE || !pricingHint.pricing_model) {
+    return Number.isSafeInteger(pricingHint.fixed_price_cents) ? pricingHint.fixed_price_cents : 0;
+  }
+  return 0;
+}
+
+function billingValidationError(errors = []) {
+  if (errors.includes("billing.acknowledged must be true")) {
+    return {
+      statusCode: 402,
+      error: { code: BILLING_ERROR_CODE.BILLING_CONSENT_REQUIRED, message: "paid hotline requires billing acknowledgement", retryable: false }
+    };
+  }
+  if (errors.includes("billing.max_charge_cents must be >= pricing_hint.max_total_cents")) {
+    return {
+      statusCode: 400,
+      error: { code: BILLING_ERROR_CODE.BILLING_MAX_CHARGE_TOO_LOW, message: "billing max charge is below hotline price", retryable: false }
+    };
+  }
+  if (errors.some((error) => error.includes("pricing_model"))) {
+    return {
+      statusCode: 400,
+      error: { code: BILLING_ERROR_CODE.BILLING_PRICING_MODEL_MISMATCH, message: "billing pricing model does not match hotline pricing", retryable: false }
+    };
+  }
+  if (errors.some((error) => error.includes("currency"))) {
+    return {
+      statusCode: 400,
+      error: { code: BILLING_ERROR_CODE.BILLING_CURRENCY_UNSUPPORTED, message: "billing currency does not match hotline pricing", retryable: false }
+    };
+  }
+  return {
+    statusCode: 400,
+    error: { code: "ERR_BILLING_REQUEST_INVALID", message: errors.join("; ") || "billing request is invalid", retryable: false }
+  };
+}
+
+function billingStoreError(error) {
+  if (error?.code && error?.httpStatus) {
+    return {
+      statusCode: error.httpStatus,
+      error: {
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable === undefined ? false : error.retryable,
+        reason: error.reason
+      }
+    };
+  }
+  return {
+    statusCode: 500,
+    error: { code: "ERR_BILLING_INTERNAL", message: "billing request failed", retryable: true }
+  };
+}
+
+async function applyBillingHoldIfNeeded(state, auth, request, catalogItem, body) {
+  if (!isBillingEnforced(state)) {
+    return { billingClaims: null };
+  }
+
+  const pricingHint = catalogItem.pricing_hint || null;
+  const maxChargeCents = pricingHintMaxCharge(pricingHint);
+  if (maxChargeCents <= 0) {
+    return { billingClaims: null };
+  }
+
+  if (request.billing?.state === "held") {
+    return { billingClaims: cloneValue(request.billing.billing_claims) };
+  }
+
+  if (!state.billingStore) {
+    return {
+      statusCode: 503,
+      error: { code: "BILLING_STORE_UNAVAILABLE", message: "billing store is not configured", retryable: true }
+    };
+  }
+
+  const pricing = validatePricingHint(pricingHint);
+  if (!pricing.valid) {
+    return billingValidationError(pricing.errors);
+  }
+
+  const billingClaims = body.billing || null;
+  const claims = validateTaskBillingClaims(billingClaims, pricingHint);
+  if (!claims.valid) {
+    return billingValidationError(claims.errors);
+  }
+
+  let balance;
+  try {
+    balance = await state.billingStore.getBalance(auth.user_id);
+  } catch (error) {
+    return billingStoreError(error);
+  }
+
+  if (balance.credit_balance_cents < billingClaims.max_charge_cents) {
+    return {
+      statusCode: 402,
+      error: { code: BILLING_ERROR_CODE.PREPAID_BALANCE_INSUFFICIENT, message: "prepaid balance is insufficient for this hotline", retryable: true }
+    };
+  }
+
+  try {
+    const ledger = await state.billingStore.applyBalanceDelta({
+      tenantId: auth.user_id,
+      deltaCents: -billingClaims.max_charge_cents,
+      kind: "hold",
+      direction: "caller_spend",
+      requestId: body.request_id,
+      recordedAt: new Date()
+    });
+    request.billing = {
+      state: "held",
+      tenant_id: auth.user_id,
+      pricing_hint: cloneValue(pricingHint),
+      billing_claims: cloneValue(billingClaims),
+      hold_amount_cents: billingClaims.max_charge_cents,
+      hold_ledger_id: ledger.ledger_id,
+      held_at: ledger.recorded_at
+    };
+    appendRequestEvent(request, "BILLING_HELD", {
+      actor_type: "platform",
+      event_name: BILLING_EVENT.REQUEST_BILLING_HELD,
+      amount_cents: billingClaims.max_charge_cents,
+      ledger_id: ledger.ledger_id
+    });
+    return { billingClaims };
+  } catch (error) {
+    return billingStoreError(error);
+  }
+}
+
+function defaultBillingUsageForRequest(request) {
+  const pricingHint = request.billing?.pricing_hint;
+  if (!pricingHint) {
+    return null;
+  }
+  if ((pricingHint.pricing_model || PRICING_MODEL.FIXED_PRICE) === PRICING_MODEL.FIXED_PRICE) {
+    return {
+      pricing_model: PRICING_MODEL.FIXED_PRICE,
+      total_cents: pricingHint.fixed_price_cents
+    };
+  }
+  return null;
+}
+
+async function applyTerminalBillingIfNeeded(state, request, body) {
+  if (!isBillingEnforced(state) || request.billing?.state !== "held") {
+    return { billingEvent: null };
+  }
+  if (!state.billingStore) {
+    return {
+      statusCode: 503,
+      error: { code: "BILLING_STORE_UNAVAILABLE", message: "billing store is not configured", retryable: true }
+    };
+  }
+
+  if (body.event_type === "FAILED") {
+    try {
+      const refund = await state.billingStore.applyBalanceDelta({
+        tenantId: request.billing.tenant_id,
+        deltaCents: request.billing.hold_amount_cents,
+        kind: "refund",
+        direction: "system",
+        requestId: request.request_id,
+        recordedAt: body.finished_at || new Date()
+      });
+      request.billing.state = "refunded";
+      request.billing.refund_ledger_id = refund.ledger_id;
+      request.billing.refunded_at = refund.recorded_at;
+      return {
+        billingEvent: {
+          event_type: "BILLING_REFUNDED",
+          event_name: BILLING_EVENT.REQUEST_REFUNDED_FAILED,
+          amount_cents: request.billing.hold_amount_cents,
+          ledger_id: refund.ledger_id
+        }
+      };
+    } catch (error) {
+      return billingStoreError(error);
+    }
+  }
+
+  const usage = body.usage || defaultBillingUsageForRequest(request);
+  const usageValidation = validateBillingUsage(usage, request.billing.pricing_hint, request.billing.billing_claims);
+  if (!usageValidation.valid) {
+    return billingValidationError(usageValidation.errors);
+  }
+
+  const refundDelta = request.billing.hold_amount_cents - usage.total_cents;
+  try {
+    let refund = null;
+    if (refundDelta > 0) {
+      refund = await state.billingStore.applyBalanceDelta({
+        tenantId: request.billing.tenant_id,
+        deltaCents: refundDelta,
+        kind: "refund",
+        direction: "system",
+        requestId: request.request_id,
+        recordedAt: body.finished_at || new Date()
+      });
+    }
+    const debit = await state.billingStore.applyBalanceDelta({
+      tenantId: request.billing.tenant_id,
+      deltaCents: 0,
+      kind: "debit",
+      direction: "caller_spend",
+      requestId: request.request_id,
+      recordedAt: body.finished_at || new Date()
+    });
+    request.billing.state = "settled";
+    request.billing.actual_amount_cents = usage.total_cents;
+    request.billing.debit_ledger_id = debit.ledger_id;
+    request.billing.refund_ledger_id = refund?.ledger_id || null;
+    request.billing.settled_at = debit.recorded_at;
+    return {
+      billingEvent: {
+        event_type: "BILLING_SETTLED",
+        event_name: refund ? BILLING_EVENT.REQUEST_BILLING_CAPPED : "caller.request.billing_settled",
+        amount_cents: usage.total_cents,
+        ledger_id: debit.ledger_id,
+        refund_ledger_id: refund?.ledger_id || null
+      }
+    };
+  } catch (error) {
+    return billingStoreError(error);
+  }
 }
 
 function requestEventHistoryLimit(state) {
@@ -1143,6 +1396,7 @@ export function createPlatformState(options = {}) {
     tokenSecret,
     tokenTtlSeconds,
     billingStore: options.billingStore || null,
+    billingEnforcement: normalizeBillingEnforcement(options.billingEnforcement || process.env.BILLING_ENFORCEMENT),
     limits: options.limits || buildPlatformLimits(),
     users,
     apiKeys,
@@ -1475,7 +1729,8 @@ function createTaskClaims(state, {
   requestId,
   responderId,
   hotlineId,
-  requestKind = "remote_request"
+  requestKind = "remote_request",
+  billing = null
 }) {
   const issuedAt = Math.floor(Date.now() / 1000);
   const tokenTtlSeconds = Number(process.env.TOKEN_TTL_SECONDS || state.tokenTtlSeconds);
@@ -1492,6 +1747,9 @@ function createTaskClaims(state, {
     hotline_id: hotlineId,
     request_kind: requestKind
   };
+  if (billing) {
+    claims.billing = cloneValue(billing);
+  }
   return {
     claims,
     task_token: signToken(state.tokenSecret, claims)
@@ -1668,7 +1926,7 @@ function paginateItems(items, { limit, offset }) {
   };
 }
 
-function issueTaskToken(state, auth, body) {
+async function issueTaskToken(state, auth, body) {
   const catalogItem = state.catalog.get(body.hotline_id);
   const responder = state.responders.get(body.responder_id);
   if (
@@ -1691,11 +1949,17 @@ function issueTaskToken(state, auth, body) {
     return { error: { code: "REQUEST_BINDING_MISMATCH", message: "responder_id or hotline_id does not match existing request", retryable: false }, statusCode: 409 };
   }
 
+  const billing = await applyBillingHoldIfNeeded(state, auth, request, catalogItem, body);
+  if (billing.error) {
+    return billing;
+  }
+
   const issued = createTaskClaims(state, {
     callerId: auth.user_id,
     requestId: body.request_id,
     responderId: body.responder_id,
-    hotlineId: body.hotline_id
+    hotlineId: body.hotline_id,
+    billing: billing.billingClaims
   });
   request.caller_id = auth.user_id;
   request.responder_id = body.responder_id;
@@ -2267,7 +2531,7 @@ export function createPlatformServer({
           return;
         }
 
-        const issued = issueTaskToken(state, auth, body);
+        const issued = await issueTaskToken(state, auth, body);
         if (issued.error) {
           sendJson(res, issued.statusCode || 404, { error: issued.error });
           return;
@@ -2507,6 +2771,12 @@ export function createPlatformServer({
           return;
         }
 
+        const terminalBilling = await applyTerminalBillingIfNeeded(state, request, body);
+        if (terminalBilling.error) {
+          sendJson(res, terminalBilling.statusCode || 400, { error: terminalBilling.error });
+          return;
+        }
+
         appendRequestEvent(request, body.event_type, {
           actor_type: "responder",
           responder_id: body.responder_id,
@@ -2515,6 +2785,15 @@ export function createPlatformServer({
           error_code: body.error_code || null,
           finished_at: body.finished_at || nowIso()
         });
+        if (terminalBilling.billingEvent) {
+          appendRequestEvent(request, terminalBilling.billingEvent.event_type, {
+            actor_type: "platform",
+            event_name: terminalBilling.billingEvent.event_name,
+            amount_cents: terminalBilling.billingEvent.amount_cents,
+            ledger_id: terminalBilling.billingEvent.ledger_id,
+            refund_ledger_id: terminalBilling.billingEvent.refund_ledger_id || null
+          });
+        }
         await persistPlatformState(onStateChanged, state);
 
         sendJson(res, 202, {

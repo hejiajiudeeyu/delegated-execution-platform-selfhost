@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const ROOT_DIR = process.cwd();
+const LOCAL_PROTOCOL_CONTRACTS_DIR = path.resolve(ROOT_DIR, "../protocol/packages/contracts");
 
 const SERVICE_PACKAGES = [
   {
@@ -39,6 +40,13 @@ const ALL_PACKAGES = [
   ...LIBRARY_PACKAGES.map((item) => item.workspace)
 ];
 
+const LOCAL_SHARED_PACKAGES = [
+  {
+    name: "@delexec/contracts",
+    packageDir: LOCAL_PROTOCOL_CONTRACTS_DIR
+  }
+];
+
 function packageInstallPath(installDir, workspace) {
   return path.join(installDir, "node_modules", ...workspace.split("/"));
 }
@@ -54,6 +62,25 @@ async function packWorkspace(workspace, packDir) {
   const tarballName = packed.stdout.trim().split("\n").filter(Boolean).at(-1);
   if (!tarballName) {
     throw new Error(`package_pack_missing_tarball:${workspace}`);
+  }
+  return path.join(packDir, tarballName);
+}
+
+async function packLocalPackage(item, packDir) {
+  const manifestPath = path.join(item.packageDir, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    return null;
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (manifest.name !== item.name) {
+    throw new Error(`local_package_name_mismatch:${item.name}:${manifest.name || "missing"}`);
+  }
+  const packed = await execFileAsync("npm", ["pack", item.packageDir, "--pack-destination", packDir], {
+    cwd: ROOT_DIR
+  });
+  const tarballName = packed.stdout.trim().split("\n").filter(Boolean).at(-1);
+  if (!tarballName) {
+    throw new Error(`local_package_pack_missing_tarball:${item.name}`);
   }
   return path.join(packDir, tarballName);
 }
@@ -164,6 +191,12 @@ async function main() {
     const tarballs = [];
     for (const workspace of ALL_PACKAGES) {
       tarballs.push(await packWorkspace(workspace, packDir));
+    }
+    for (const item of LOCAL_SHARED_PACKAGES) {
+      const tarball = await packLocalPackage(item, packDir);
+      if (tarball) {
+        tarballs.push(tarball);
+      }
     }
 
     await execFileAsync("npm", ["init", "-y"], { cwd: installDir });

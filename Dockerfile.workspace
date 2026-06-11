@@ -6,9 +6,13 @@ COPY apps/platform-console/package.json apps/platform-console/package.json
 COPY apps/platform-api/package.json apps/platform-api/package.json
 COPY apps/platform-console-gateway/package.json apps/platform-console-gateway/package.json
 COPY apps/transport-relay/package.json apps/transport-relay/package.json
+COPY packages/billing-store/package.json packages/billing-store/package.json
 COPY packages/postgres-store/package.json packages/postgres-store/package.json
 
-RUN npm ci --omit=dev
+RUN npm ci --omit=dev \
+  && mkdir -p apps/platform-api/node_modules \
+    apps/platform-console-gateway/node_modules \
+    apps/transport-relay/node_modules
 
 FROM node:22-alpine AS runtime
 WORKDIR /app
@@ -19,10 +23,14 @@ COPY package.json package-lock.json ./
 COPY apps ./apps
 COPY packages ./packages
 COPY scripts ./scripts
+COPY .docker-local-packages ./.docker-local-packages
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/platform-api/node_modules ./apps/platform-api/node_modules
 COPY --from=deps /app/apps/platform-console-gateway/node_modules ./apps/platform-console-gateway/node_modules
 COPY --from=deps /app/apps/transport-relay/node_modules ./apps/transport-relay/node_modules
+RUN if find .docker-local-packages -maxdepth 1 -name "*.tgz" -print -quit | grep -q .; then \
+    npm install --omit=dev --package-lock=false ./.docker-local-packages/*.tgz; \
+  fi
 
 ENV NODE_ENV=production
 WORKDIR /app/${APP_PATH}

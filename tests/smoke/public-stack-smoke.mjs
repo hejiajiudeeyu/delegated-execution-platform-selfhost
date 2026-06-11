@@ -1,5 +1,11 @@
 import crypto from "node:crypto";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+const ROOT_DIR = process.cwd();
+const LOCAL_DOCKER_PACKAGES_DIR = path.join(ROOT_DIR, ".docker-local-packages");
+const LOCAL_PROTOCOL_CONTRACTS_DIR = path.resolve(ROOT_DIR, "../protocol/packages/contracts");
 
 function runCmd(cmd, args, options = {}) {
   return spawnSync(cmd, args, {
@@ -74,7 +80,42 @@ function imageRef(name) {
   return `${process.env.IMAGE_REGISTRY || "ghcr.io/hejiajiudeeyu"}/${name}:${process.env.IMAGE_TAG || "latest"}`;
 }
 
+function cleanupLocalDockerPackages() {
+  if (!fs.existsSync(LOCAL_DOCKER_PACKAGES_DIR)) {
+    return;
+  }
+  for (const entry of fs.readdirSync(LOCAL_DOCKER_PACKAGES_DIR)) {
+    if (entry.endsWith(".tgz")) {
+      fs.rmSync(path.join(LOCAL_DOCKER_PACKAGES_DIR, entry), { force: true });
+    }
+  }
+}
+
+function stageLocalDockerPackages() {
+  cleanupLocalDockerPackages();
+  fs.mkdirSync(LOCAL_DOCKER_PACKAGES_DIR, { recursive: true });
+
+  const manifestPath = path.join(LOCAL_PROTOCOL_CONTRACTS_DIR, "package.json");
+  if (!fs.existsSync(manifestPath)) {
+    return;
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (manifest.name !== "@delexec/contracts") {
+    throw new Error(`local_contracts_package_name_mismatch:${manifest.name || "missing"}`);
+  }
+  const result = runCmd("npm", ["pack", LOCAL_PROTOCOL_CONTRACTS_DIR, "--pack-destination", LOCAL_DOCKER_PACKAGES_DIR]);
+  if (result.status !== 0) {
+    throw new Error(`local_contracts_pack_failed:${summarizeOutput(result)}`);
+  }
+  const tarballName = result.stdout.trim().split("\n").filter(Boolean).at(-1);
+  if (!tarballName) {
+    throw new Error("local_contracts_pack_missing_tarball");
+  }
+  console.log(`[public-stack-smoke] staged local package @delexec/contracts ${tarballName}`);
+}
+
 function buildLocalReleaseImages() {
+  stageLocalDockerPackages();
   const builds = [
     { name: "rsp-platform", appPath: "apps/platform-api" },
     { name: "rsp-relay", appPath: "apps/transport-relay" },
@@ -272,6 +313,7 @@ async function main() {
   } finally {
     console.log("[public-stack-smoke] down");
     cleanupComposeProject(compose);
+    cleanupLocalDockerPackages();
   }
 }
 
