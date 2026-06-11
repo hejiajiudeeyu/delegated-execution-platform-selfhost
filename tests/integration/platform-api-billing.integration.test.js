@@ -158,6 +158,125 @@ describe("platform-api billing admin integration", () => {
   });
 });
 
+describe("platform-api caller billing integration", () => {
+  it("allows callers to read their own balance and ledger", async () => {
+    const billing = await createBillingTestStore();
+    const state = createPlatformState({ billingStore: billing.store });
+    const server = createPlatformServer({
+      serviceName: "platform-api-caller-billing-test",
+      state
+    });
+    const baseUrl = await listenServer(server);
+
+    try {
+      const caller = await registerCaller(baseUrl, "caller-billing-self@test.local");
+      await billing.store.createTenant(caller.user_id);
+      await billing.store.createRecharge({
+        recharge_id: "rch_caller_billing_self_1",
+        tenant_id: caller.user_id,
+        amount_cents: 2500,
+        currency: "PTS"
+      });
+
+      const headers = { Authorization: `Bearer ${caller.api_key}` };
+      const balance = await jsonRequest(baseUrl, "/v1/tenants/me/balance", { headers });
+      expect(balance.status).toBe(200);
+      expect(balance.body).toMatchObject({
+        tenant_id: caller.user_id,
+        balance: {
+          tenant_id: caller.user_id,
+          credit_balance_cents: 2500,
+          currency: "PTS"
+        }
+      });
+
+      const ledger = await jsonRequest(baseUrl, "/v1/tenants/me/ledger?limit=5&kind=recharge", { headers });
+      expect(ledger.status).toBe(200);
+      expect(ledger.body.tenant_id).toBe(caller.user_id);
+      expect(ledger.body.items).toHaveLength(1);
+      expect(ledger.body.items[0]).toMatchObject({
+        tenant_id: caller.user_id,
+        kind: "recharge",
+        amount_cents: 2500
+      });
+    } finally {
+      await closeServer(server);
+      await billing.close();
+    }
+  });
+
+  it("keeps caller ledger reads scoped to the authenticated tenant", async () => {
+    const billing = await createBillingTestStore();
+    const state = createPlatformState({ billingStore: billing.store });
+    const server = createPlatformServer({
+      serviceName: "platform-api-caller-billing-isolation-test",
+      state
+    });
+    const baseUrl = await listenServer(server);
+
+    try {
+      const callerA = await registerCaller(baseUrl, "caller-billing-a@test.local");
+      const callerB = await registerCaller(baseUrl, "caller-billing-b@test.local");
+      await billing.store.createTenant(callerA.user_id);
+      await billing.store.createTenant(callerB.user_id);
+      await billing.store.createRecharge({
+        recharge_id: "rch_caller_billing_a_1",
+        tenant_id: callerA.user_id,
+        amount_cents: 1100,
+        currency: "PTS"
+      });
+      await billing.store.createRecharge({
+        recharge_id: "rch_caller_billing_b_1",
+        tenant_id: callerB.user_id,
+        amount_cents: 9900,
+        currency: "PTS"
+      });
+
+      const ledgerA = await jsonRequest(baseUrl, "/v1/tenants/me/ledger?limit=10", {
+        headers: { Authorization: `Bearer ${callerA.api_key}` }
+      });
+      expect(ledgerA.status).toBe(200);
+      expect(ledgerA.body.tenant_id).toBe(callerA.user_id);
+      expect(ledgerA.body.items.map((item) => item.tenant_id)).toEqual([callerA.user_id]);
+      expect(ledgerA.body.items[0].amount_cents).toBe(1100);
+
+      const balanceB = await jsonRequest(baseUrl, "/v1/tenants/me/balance", {
+        headers: { Authorization: `Bearer ${callerB.api_key}` }
+      });
+      expect(balanceB.status).toBe(200);
+      expect(balanceB.body.balance.credit_balance_cents).toBe(9900);
+    } finally {
+      await closeServer(server);
+      await billing.close();
+    }
+  });
+
+  it("returns a clear billing-not-enabled error for callers without a tenant", async () => {
+    const billing = await createBillingTestStore();
+    const state = createPlatformState({ billingStore: billing.store });
+    const server = createPlatformServer({
+      serviceName: "platform-api-caller-billing-missing-test",
+      state
+    });
+    const baseUrl = await listenServer(server);
+
+    try {
+      const caller = await registerCaller(baseUrl, "caller-billing-missing@test.local");
+      const balance = await jsonRequest(baseUrl, "/v1/tenants/me/balance", {
+        headers: { Authorization: `Bearer ${caller.api_key}` }
+      });
+      expect(balance.status).toBe(404);
+      expect(balance.body.error).toMatchObject({
+        code: "ERR_BILLING_NOT_ENABLED",
+        retryable: false
+      });
+    } finally {
+      await closeServer(server);
+      await billing.close();
+    }
+  });
+});
+
 describe("platform-api billing enforcement integration", () => {
   it("keeps token issuance unchanged when billing enforcement is disabled", async () => {
     const state = createPlatformState({ billingEnforcement: "disabled" });

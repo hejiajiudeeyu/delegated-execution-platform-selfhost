@@ -2251,6 +2251,16 @@ export function createPlatformServer({
     return null;
   }
 
+  function sendCallerBillingError(res, error) {
+    if (error?.code === "ERR_TENANT_NOT_FOUND") {
+      sendError(res, 404, "ERR_BILLING_NOT_ENABLED", "billing is not enabled for this caller", {
+        retryable: false
+      });
+      return;
+    }
+    sendBillingError(res, error);
+  }
+
   function renderPrometheusMetrics() {
     const lines = [
       "# HELP rsp_platform_requests_total Total requests tracked by the platform state.",
@@ -2964,6 +2974,55 @@ export function createPlatformServer({
             return acc;
           }, {})
         });
+        return;
+      }
+
+      if (method === "GET" && pathname === "/v1/tenants/me/balance") {
+        const auth = requireCaller(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const billingStore = requireBillingStore(res);
+        if (!billingStore) {
+          return;
+        }
+        try {
+          const balance = await billingStore.getBalance(auth.user_id, {
+            nowUtc: url.searchParams.get("now_utc") || new Date()
+          });
+          sendJson(res, 200, {
+            tenant_id: auth.user_id,
+            balance
+          });
+        } catch (error) {
+          sendCallerBillingError(res, error);
+        }
+        return;
+      }
+
+      if (method === "GET" && pathname === "/v1/tenants/me/ledger") {
+        const auth = requireCaller(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const billingStore = requireBillingStore(res);
+        if (!billingStore) {
+          return;
+        }
+        try {
+          const ledger = await billingStore.getLedger(auth.user_id, {
+            limit: url.searchParams.get("limit") || undefined,
+            cursor: url.searchParams.get("cursor") || undefined,
+            kind: url.searchParams.getAll("kind"),
+            since: url.searchParams.get("since") || undefined
+          });
+          sendJson(res, 200, {
+            tenant_id: auth.user_id,
+            ...ledger
+          });
+        } catch (error) {
+          sendCallerBillingError(res, error);
+        }
         return;
       }
 
