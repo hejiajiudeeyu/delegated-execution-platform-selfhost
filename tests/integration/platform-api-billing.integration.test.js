@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import crypto from "node:crypto";
 import { newDb } from "pg-mem";
 
 import { PRICING_MODEL, TRUST_TIER } from "@delexec/contracts";
@@ -59,6 +60,10 @@ function billingConsent(amountCents = 500) {
     consent_at: "2026-06-12T00:00:00.000Z",
     trust_tier_seen: TRUST_TIER.UNTRUSTED
   };
+}
+
+function generatePublicKeyPem() {
+  return crypto.generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
 }
 
 describe("platform-api billing admin integration", () => {
@@ -278,6 +283,90 @@ describe("platform-api caller billing integration", () => {
 });
 
 describe("platform-api billing enforcement integration", () => {
+  it("preserves submitted hotline pricing hints for enforced paid-call gating", async () => {
+    const billing = await createBillingTestStore();
+    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", bootstrapEnabled: false });
+    const server = createPlatformServer({
+      serviceName: "platform-api-billing-submitted-paid-hotline-test",
+      state
+    });
+    const baseUrl = await listenServer(server);
+
+    try {
+      const owner = await registerCaller(baseUrl, "paid-hotline-owner@test.local");
+      const ownerHeaders = { Authorization: `Bearer ${owner.api_key}` };
+      const pricingHint = {
+        pricing_model: PRICING_MODEL.FIXED_PRICE,
+        currency: "PTS",
+        fixed_price_cents: 500,
+        base_price_cents: null,
+        variable_unit: null,
+        variable_unit_description: null,
+        variable_unit_price_cents: null,
+        max_total_cents: 500,
+        free_tier: null,
+        billing_disclosure_url: "https://callanything.xyz/marketplace/responders/paid-e2e",
+        trust_tier: TRUST_TIER.UNTRUSTED
+      };
+
+      const submitted = await jsonRequest(baseUrl, "/v2/hotlines", {
+        method: "POST",
+        headers: ownerHeaders,
+        body: {
+          responder_id: "responder_paid_e2e",
+          hotline_id: "paid.echo.e2e.v1",
+          display_name: "Paid Echo E2E",
+          responder_public_key_pem: generatePublicKeyPem(),
+          task_types: ["paid_echo"],
+          capabilities: ["paid.echo"],
+          tags: ["billing", "e2e"],
+          pricing_hint: pricingHint
+        }
+      });
+      expect(submitted.status).toBe(201);
+
+      const adminHeaders = { Authorization: `Bearer ${state.adminApiKey}` };
+      const approveHotline = await jsonRequest(baseUrl, "/v2/admin/hotlines/paid.echo.e2e.v1/approve", {
+        method: "POST",
+        headers: adminHeaders,
+        body: { reason: "paid-call e2e pricing accepted" }
+      });
+      expect(approveHotline.status).toBe(200);
+      const approveResponder = await jsonRequest(baseUrl, "/v2/admin/responders/responder_paid_e2e/approve", {
+        method: "POST",
+        headers: adminHeaders,
+        body: { reason: "paid-call e2e responder accepted" }
+      });
+      expect(approveResponder.status).toBe(200);
+
+      const detail = await jsonRequest(baseUrl, "/v1/catalog/hotlines/paid.echo.e2e.v1");
+      expect(detail.status).toBe(200);
+      expect(detail.body.pricing_hint).toMatchObject({
+        pricing_model: PRICING_MODEL.FIXED_PRICE,
+        fixed_price_cents: 500,
+        max_total_cents: 500
+      });
+
+      const caller = await registerCaller(baseUrl, "paid-hotline-caller@test.local");
+      await billing.store.createTenant(caller.user_id);
+      const token = await jsonRequest(baseUrl, "/v1/tokens/task", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${caller.api_key}` },
+        body: {
+          request_id: "req_submitted_paid_hotline_insufficient_1",
+          responder_id: "responder_paid_e2e",
+          hotline_id: "paid.echo.e2e.v1",
+          billing: billingConsent(500)
+        }
+      });
+      expect(token.status).toBe(402);
+      expect(token.body.error.code).toBe("ERR_PREPAID_BALANCE_INSUFFICIENT");
+    } finally {
+      await closeServer(server);
+      await billing.close();
+    }
+  });
+
   it("keeps token issuance unchanged when billing enforcement is disabled", async () => {
     const state = createPlatformState({ billingEnforcement: "disabled" });
     const responder = markBootstrapHotlinePaid(state);

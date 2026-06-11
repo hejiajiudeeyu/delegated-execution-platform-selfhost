@@ -1712,6 +1712,7 @@ function buildSubmissionPayload(body) {
     recommended_for: Array.isArray(body.recommended_for) ? body.recommended_for : null,
     not_recommended_for: Array.isArray(body.not_recommended_for) ? body.not_recommended_for : null,
     limitations: Array.isArray(body.limitations) ? body.limitations : null,
+    pricing_hint: body.pricing_hint === undefined ? undefined : body.pricing_hint,
     input_summary: body.input_summary || null,
     output_summary: body.output_summary || null,
     contact_email: body.contact_email || null,
@@ -2036,6 +2037,20 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
   }
 
   const submissionPayload = buildSubmissionPayload(body);
+  if (submissionPayload.pricing_hint !== undefined && submissionPayload.pricing_hint !== null) {
+    const pricingHint = validatePricingHint(submissionPayload.pricing_hint);
+    if (!pricingHint.valid) {
+      return {
+        error: {
+          code: "CATALOG_PRICING_HINT_INVALID",
+          message: pricingHint.errors.join("; ") || "pricing_hint is invalid",
+          retryable: false,
+          details: pricingHint.errors
+        },
+        statusCode: 400
+      };
+    }
+  }
   const ownerUserId = existingResponder?.owner_user_id || auth?.user_id || body.owner_user_id || randomId("user");
   const responderApiKey = existingResponder?.api_key || `sk_responder_${crypto.randomBytes(12).toString("hex")}`;
   const heartbeatAt = nowIso();
@@ -2107,6 +2122,12 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
     output_attachments: submissionPayload.output_attachments || existingItem?.output_attachments || null,
     input_examples: submissionPayload.input_examples || existingItem?.input_examples || null,
     output_examples: submissionPayload.output_examples || existingItem?.output_examples || null,
+    pricing_hint:
+      submissionPayload.pricing_hint === undefined
+        ? existingItem?.pricing_hint || null
+        : submissionPayload.pricing_hint === null
+          ? null
+          : cloneValue(submissionPayload.pricing_hint),
     recommended_for: submissionPayload.recommended_for || existingItem?.recommended_for || null,
     not_recommended_for: submissionPayload.not_recommended_for || existingItem?.not_recommended_for || null,
     limitations: submissionPayload.limitations || existingItem?.limitations || null,
