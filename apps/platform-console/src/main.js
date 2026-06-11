@@ -1,6 +1,10 @@
 import {
+  LEGACY_CONSOLE_SECTIONS,
   renderAdminRequestCardsMarkup,
   renderAuditCardsMarkup,
+  renderBillingBalanceSummary,
+  renderBillingConsoleSection,
+  renderBillingLedgerSummary,
   renderDetailSummary,
   renderHistorySummary,
   renderPaginationSummary,
@@ -13,6 +17,7 @@ import {
 const DEFAULT_GATEWAY_URL = "http://127.0.0.1:8085";
 const storageKeys = {
   actionReason: "rsp.platform.actionReason",
+  billingTenantHistory: "rsp.platform.billingTenantHistory",
   bootstrapSecret: "rsp.platform.bootstrapSecret",
   reviewerNotes: "rsp.platform.reviewerNotes"
 };
@@ -29,6 +34,11 @@ const uiState = {
   requests: [],
   audit: [],
   reviews: [],
+  billing: {
+    balance: null,
+    ledger: [],
+    tenantHistory: []
+  },
   detail: null,
   loaded: false,
   pagination: {
@@ -45,8 +55,11 @@ const sectionLabels = {
   hotlines: "hotlines",
   requests: "requests",
   audit: "audit",
-  reviews: "reviews"
+  reviews: "reviews",
+  billing: "billing"
 };
+
+const paginatedSections = LEGACY_CONSOLE_SECTIONS.filter((section) => section !== "billing");
 
 async function requestJson(baseUrl, pathname, { method = "GET", body } = {}) {
   const headers = {};
@@ -179,6 +192,7 @@ app.innerHTML = `
         <option value="requests">requests</option>
         <option value="audit">audit</option>
         <option value="reviews">reviews</option>
+        <option value="billing">billing</option>
       </select>
     </section>
 
@@ -266,6 +280,8 @@ app.innerHTML = `
         </div>
       </section>
 
+      ${renderBillingConsoleSection()}
+
       <section class="grid one">
         <div class="card">
           <div class="section-head">
@@ -310,6 +326,15 @@ const detailHistory = document.querySelector("#detail-history");
 const detailOutput = document.querySelector("#detail-output");
 const respondersList = document.querySelector("#responders-list");
 const hotlinesList = document.querySelector("#hotlines-list");
+const billingTenantInput = document.querySelector("#billing-tenant-id");
+const billingTenantOptions = document.querySelector("#billing-tenant-options");
+const billingRechargeIdInput = document.querySelector("#billing-recharge-id");
+const billingRechargeAmountInput = document.querySelector("#billing-recharge-amount");
+const billingRechargeProviderInput = document.querySelector("#billing-recharge-provider");
+const billingRechargeReferenceInput = document.querySelector("#billing-recharge-reference");
+const billingBalance = document.querySelector("#billing-balance");
+const billingLedger = document.querySelector("#billing-ledger");
+const billingOutput = document.querySelector("#billing-output");
 const pageOutputs = {
   responders: document.querySelector("#responders-page"),
   hotlines: document.querySelector("#hotlines-page"),
@@ -328,6 +353,49 @@ function loadPrefs() {
   actionReasonInput.value = localStorage.getItem(storageKeys.actionReason) || actionReasonInput.value;
   sessionBootstrapSecretInput.value = localStorage.getItem(storageKeys.bootstrapSecret) || "";
   reviewerNotesInput.value = localStorage.getItem(storageKeys.reviewerNotes) || "";
+  uiState.billing.tenantHistory = loadBillingTenantHistory();
+  renderBillingTenantOptions();
+  billingTenantInput.value = uiState.billing.tenantHistory[0] || billingTenantInput.value;
+  sectionFilterInput.value = initialSectionFilter();
+}
+
+function loadBillingTenantHistory() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKeys.billingTenantHistory) || "[]");
+    if (Array.isArray(parsed)) {
+      const history = parsed.filter((item) => typeof item === "string" && item.trim()).slice(0, 10);
+      return history.length ? history : ["tenant_default"];
+    }
+  } catch {
+    // Ignore malformed local operator preferences.
+  }
+  return ["tenant_default"];
+}
+
+function saveBillingTenantHistory() {
+  localStorage.setItem(storageKeys.billingTenantHistory, JSON.stringify(uiState.billing.tenantHistory.slice(0, 10)));
+}
+
+function rememberBillingTenant(tenantId) {
+  const nextTenant = tenantId.trim();
+  if (!nextTenant) {
+    return;
+  }
+  uiState.billing.tenantHistory = [nextTenant, ...uiState.billing.tenantHistory.filter((item) => item !== nextTenant)].slice(0, 10);
+  saveBillingTenantHistory();
+  renderBillingTenantOptions();
+}
+
+function renderBillingTenantOptions() {
+  billingTenantOptions.innerHTML = uiState.billing.tenantHistory.map((tenantId) => `<option value="${tenantId}"></option>`).join("");
+}
+
+function initialSectionFilter() {
+  const urlSection = new URLSearchParams(window.location.search).get("section");
+  const hashSection = window.location.hash.replace(/^#\/?/, "");
+  const pathSection = window.location.pathname.replace(/\/$/, "").split("/").pop();
+  const candidates = [urlSection, hashSection, pathSection].filter(Boolean);
+  return candidates.find((candidate) => LEGACY_CONSOLE_SECTIONS.includes(candidate)) || "all";
 }
 
 function applyFilter(items) {
@@ -625,8 +693,116 @@ async function refreshReviews() {
   reviewsOutput.textContent = JSON.stringify({ ...reviews, body: { items: filteredItems } }, null, 2);
 }
 
+function currentBillingTenantId() {
+  return billingTenantInput.value.trim();
+}
+
+function renderBillingFromState() {
+  billingBalance.innerHTML = renderBillingBalanceSummary(uiState.billing.balance);
+  billingLedger.innerHTML = renderBillingLedgerSummary(applyFilter(uiState.billing.ledger));
+}
+
+async function refreshBilling() {
+  if (!sectionVisible("billing")) {
+    billingBalance.innerHTML = `<div class="empty">Billing hidden by section filter.</div>`;
+    billingLedger.innerHTML = `<div class="empty">Billing hidden by section filter.</div>`;
+    return;
+  }
+  if (!uiState.credentials?.api_key_configured) {
+    billingBalance.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
+    billingLedger.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
+    billingOutput.textContent = "Save platform credentials in the local gateway first.";
+    return;
+  }
+  const tenantId = currentBillingTenantId();
+  if (!tenantId) {
+    billingBalance.innerHTML = renderBillingBalanceSummary(null);
+    billingLedger.innerHTML = renderBillingLedgerSummary([]);
+    billingOutput.textContent = "Enter a tenant_id to load billing state.";
+    return;
+  }
+  const encodedTenantId = encodeURIComponent(tenantId);
+  const [balance, ledger] = await Promise.all([
+    proxyRequest(`/v1/admin/billing/tenants/${encodedTenantId}/balance`),
+    proxyRequest(`/v1/admin/billing/tenants/${encodedTenantId}/ledger?limit=25`)
+  ]);
+  if (balance.status === 200 && balance.body?.balance) {
+    uiState.billing.balance = balance.body.balance;
+    rememberBillingTenant(tenantId);
+  } else {
+    uiState.billing.balance = null;
+  }
+  uiState.billing.ledger = ledger.status === 200 ? ledger.body?.items || [] : [];
+  renderBillingFromState();
+  billingOutput.textContent = JSON.stringify({ balance, ledger }, null, 2);
+}
+
+async function createBillingTenant() {
+  if (!uiState.credentials?.api_key_configured) {
+    billingOutput.textContent = "Save platform credentials in the local gateway first.";
+    return;
+  }
+  const tenantId = currentBillingTenantId();
+  if (!tenantId) {
+    billingOutput.textContent = "Enter a tenant_id before creating a billing tenant.";
+    return;
+  }
+  const response = await proxyRequest("/v1/admin/billing/tenants", {
+    method: "POST",
+    body: { tenant_id: tenantId }
+  });
+  billingOutput.textContent = JSON.stringify(response, null, 2);
+  if (response.status < 400) {
+    rememberBillingTenant(tenantId);
+    await refreshBilling();
+  }
+}
+
+async function recordBillingRecharge() {
+  if (!uiState.credentials?.api_key_configured) {
+    billingOutput.textContent = "Save platform credentials in the local gateway first.";
+    return;
+  }
+  const tenantId = currentBillingTenantId();
+  const amountCents = Number(billingRechargeAmountInput.value);
+  if (!tenantId) {
+    billingOutput.textContent = "Enter a tenant_id before recording a recharge.";
+    return;
+  }
+  if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+    billingOutput.textContent = "amount_cents must be a positive integer.";
+    return;
+  }
+  const rechargeId = billingRechargeIdInput.value.trim() || `rch_${tenantId}_${Date.now()}`;
+  const response = await proxyRequest(`/v1/admin/billing/tenants/${encodeURIComponent(tenantId)}/recharges`, {
+    method: "POST",
+    body: {
+      recharge_id: rechargeId,
+      amount_cents: amountCents,
+      currency: "PTS",
+      provider: billingRechargeProviderInput.value.trim() || "manual",
+      external_reference: billingRechargeReferenceInput.value.trim() || null
+    }
+  });
+  billingOutput.textContent = JSON.stringify(response, null, 2);
+  if (response.status < 400) {
+    billingRechargeIdInput.value = "";
+    rememberBillingTenant(tenantId);
+    await refreshBilling();
+  }
+}
+
 async function refreshAll() {
-  await Promise.all([refreshOverview(), refreshResponders(), refreshHotlines(), refreshRequests(), refreshCatalog(), refreshAudit(), refreshReviews()]);
+  await Promise.all([
+    refreshOverview(),
+    refreshResponders(),
+    refreshHotlines(),
+    refreshRequests(),
+    refreshCatalog(),
+    refreshAudit(),
+    refreshReviews(),
+    refreshBilling()
+  ]);
 }
 
 async function runAction(type, id, action) {
@@ -683,7 +859,7 @@ reviewsList.addEventListener("click", (event) => {
   }
 });
 
-for (const section of ["responders", "hotlines", "requests", "audit", "reviews"]) {
+for (const section of paginatedSections) {
   document.querySelector(`#${section}-prev`).addEventListener("click", async () => {
     const pagination = uiState.pagination[section];
     pagination.offset = Math.max(0, pagination.offset - pagination.limit);
@@ -711,6 +887,10 @@ document.querySelector("#refresh-requests").addEventListener("click", refreshReq
 document.querySelector("#refresh-catalog").addEventListener("click", refreshCatalog);
 document.querySelector("#refresh-audit").addEventListener("click", refreshAudit);
 document.querySelector("#refresh-reviews").addEventListener("click", refreshReviews);
+document.querySelector("#refresh-billing").addEventListener("click", refreshBilling);
+document.querySelector("#select-billing-tenant").addEventListener("click", refreshBilling);
+document.querySelector("#create-billing-tenant").addEventListener("click", createBillingTenant);
+document.querySelector("#record-billing-recharge").addEventListener("click", recordBillingRecharge);
 globalFilterInput.addEventListener("input", () => {
   for (const pagination of Object.values(uiState.pagination)) {
     pagination.offset = 0;
@@ -721,7 +901,7 @@ globalFilterInput.addEventListener("input", () => {
 });
 sectionFilterInput.addEventListener("change", () => {
   if (uiState.credentials?.api_key_configured) {
-    void Promise.all([refreshResponders(), refreshHotlines(), refreshRequests(), refreshAudit(), refreshReviews()]);
+    void Promise.all([refreshResponders(), refreshHotlines(), refreshRequests(), refreshAudit(), refreshReviews(), refreshBilling()]);
   }
 });
 for (const input of [platformUrlInput, actionReasonInput, reviewerNotesInput, sessionBootstrapSecretInput]) {

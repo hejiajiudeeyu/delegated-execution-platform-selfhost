@@ -4,11 +4,13 @@ import {
   renderAdminRequestCardsMarkup,
   renderAuditCardsMarkup,
   renderBillingBalanceSummary,
+  renderBillingConsoleSection,
   renderBillingLedgerSummary,
   renderBillingReadinessNotice,
   renderDetailSummary,
   renderEntityCardsMarkup,
   renderHistorySummary,
+  LEGACY_CONSOLE_SECTIONS,
   renderPaginationSummary,
   renderReviewActionSummary,
   renderReviewCardsMarkup
@@ -68,5 +70,12 @@ describe("platform-console view models", () => {
       ])
     ).toContain("recharge");
     expect(renderBillingLedgerSummary([])).toContain("No billing ledger rows");
+  });
+
+  it("registers billing in the legacy console sections and renders its mount points", () => {
+    expect(LEGACY_CONSOLE_SECTIONS).toContain("billing");
+    expect(renderBillingConsoleSection()).toContain('id="billing-balance"');
+    expect(renderBillingConsoleSection()).toContain('id="billing-ledger"');
+    expect(renderBillingConsoleSection()).toContain('id="refresh-billing"');
   });
 });

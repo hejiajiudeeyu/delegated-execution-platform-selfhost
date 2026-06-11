@@ -19,6 +19,8 @@ function formatPoints(cents) {
   return `${value.toFixed(2)} PTS`;
 }
 
+export const LEGACY_CONSOLE_SECTIONS = ["responders", "hotlines", "requests", "audit", "reviews", "billing"];
+
 export function renderBillingReadinessNotice() {
   return `
     <article class="item-card">
@@ -31,6 +33,55 @@ export function renderBillingReadinessNotice() {
       </div>
       <p class="meta">This surface does not enable client-facing billing, spend enforcement, withdrawal, or fiat settlement.</p>
     </article>
+  `;
+}
+
+export function renderBillingConsoleSection() {
+  return `
+    <section class="grid one" data-console-section="billing">
+      <div class="card">
+        <div class="section-head">
+          <div>
+            <h2>Billing</h2>
+            <p class="meta">Admin-only tenant balance, manual recharge, and ledger inspection.</p>
+          </div>
+          <div class="actions inline">
+            <button id="refresh-billing" class="ghost">Reload</button>
+          </div>
+        </div>
+        ${renderBillingReadinessNotice()}
+        <div class="grid two">
+          <div class="item-card">
+            <h3>Tenant</h3>
+            <label>tenant_id</label>
+            <input id="billing-tenant-id" list="billing-tenant-options" value="tenant_default" />
+            <datalist id="billing-tenant-options"></datalist>
+            <div class="actions inline">
+              <button id="select-billing-tenant" class="ghost">Load Tenant</button>
+              <button id="create-billing-tenant" class="ghost">Create Tenant</button>
+            </div>
+            <label>recharge_id</label>
+            <input id="billing-recharge-id" placeholder="Leave blank to generate" />
+            <label>amount_cents</label>
+            <input id="billing-recharge-amount" inputmode="numeric" value="10000" />
+            <label>provider</label>
+            <input id="billing-recharge-provider" value="manual" />
+            <label>external_reference</label>
+            <input id="billing-recharge-reference" placeholder="optional" />
+            <div class="actions inline">
+              <button id="record-billing-recharge">Record Manual Recharge</button>
+            </div>
+          </div>
+          <div>
+            <h3>Balance</h3>
+            <div id="billing-balance" class="stack"></div>
+          </div>
+        </div>
+        <h3>Ledger</h3>
+        <div id="billing-ledger" class="stack"></div>
+        <pre id="billing-output" class="output compact">No billing tenant loaded yet.</pre>
+      </div>
+    </section>
   `;
 }
 
