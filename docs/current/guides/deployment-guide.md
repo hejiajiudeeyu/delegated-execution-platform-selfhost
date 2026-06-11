@@ -70,6 +70,7 @@ Set `PLATFORM_ADMIN_API_KEY` on the platform deployment if you want a stable ope
   - `REVIEW_TRANSPORT_BASE_URL` when hidden admin review tests use a dedicated relay path
 
 Current compose files keep both `image` and `build` so local source builds still work. In a registry-backed environment, set `IMAGE_REGISTRY` and `IMAGE_TAG` to the published image coordinates.
+For `deploy/public-stack`, use a concrete release tag such as `v0.1.x`; `latest` is only published from `v*` release tags and should not be the first anonymous-pull target.
 
 Current repository default image namespace:
 
@@ -159,5 +160,7 @@ Recommended image tagging model:
 Recommended publish order:
 
 1. publish shared test results
-2. publish `rsp-platform`, `rsp-caller`, `rsp-responder`
+2. publish `rsp-platform`, `rsp-gateway`, and `rsp-relay` for the public-stack path
 3. update deploy examples to the released `IMAGE_TAG`
+
+`rsp-caller` and `rsp-responder` are only referenced by legacy/internal profiles and are not required for public-stack.

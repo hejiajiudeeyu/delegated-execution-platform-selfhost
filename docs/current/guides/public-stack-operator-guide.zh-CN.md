@@ -42,6 +42,10 @@
    - `PUBLIC_SITE_ADDRESS`
    - `PLATFORM_ADMIN_API_KEY`
    - 若拉取已发布镜像，设置 `IMAGE_REGISTRY` 与 `IMAGE_TAG`
+     - 使用具体发布标签，例如 `v0.1.x`；首次公网安装不要依赖 `latest`
+     - release workflow 只会在 `v*` release tag 上发布 `latest`
+     - 可用以下命令查询已发布标签：
+       `curl -fsS https://ghcr.io/v2/hejiajiudeeyu/rsp-platform/tags/list`
 3. 启动栈：
 
 ```bash
@@ -125,3 +129,12 @@ curl -fsS "$BASE/gateway/proxy/v2/admin/hotlines" \
 本仓库当前默认镜像命名空间：
 
 - `ghcr.io/hejiajiudeeyu`
+
+public-stack 镜像集合为：
+
+- `rsp-platform`
+- `rsp-relay`
+- `rsp-gateway`
+
+这三个 GHCR package 必须设为 public，匿名 operator 才能拉取。
+`rsp-caller` 与 `rsp-responder` 不属于 public-stack 发布路径，只在遗留/内部 compose profile 中被引用。

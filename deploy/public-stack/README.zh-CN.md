@@ -23,6 +23,10 @@
    - `PLATFORM_ADMIN_API_KEY`
    - `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`
    - `IMAGE_REGISTRY` / `IMAGE_TAG`
+     - 首次公网拉取请使用具体发布标签，例如 `v0.1.x`
+     - `latest` 只会在推送 `v*` release tag 时由 Images workflow 发布
+     - 可用以下命令查询已发布标签：
+       `curl -fsS https://ghcr.io/v2/hejiajiudeeyu/rsp-platform/tags/list`
 3. `docker compose --env-file .env up -d`
 4. 检查：
    - `GET ${PUBLIC_SITE_ADDRESS%/}/healthz`
@@ -47,5 +51,7 @@
 - gateway 在容器内使用 `DELEXEC_HOME=/var/lib/delexec-ops`，并可从环境变量读取 `PLATFORM_ADMIN_API_KEY`（兼容旧密钥来源）
 - 首次调用 `/gateway/session/setup` 时，若调用方非本机或未携带 `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`，会被拒绝
 - 该 compose 文件是纯 registry 模式，不依赖本地源码构建上下文
+- 该 profile 只拉取 `rsp-platform`、`rsp-relay` 与 `rsp-gateway`；caller/responder 容器镜像属于遗留/内部 profile，不属于 public-stack 主路径
+- 首次匿名拉取前，`rsp-platform`、`rsp-relay` 与 `rsp-gateway` 的 GHCR package 必须设为 public
 - 对公网 DNS 域名，使用 `PUBLIC_SITE_ADDRESS` 让 `caddy` 完成 TLS 终止
 - 冒烟入口：`npm run test:public-stack-smoke`

@@ -20,6 +20,10 @@ It includes:
    - `PLATFORM_ADMIN_API_KEY`
    - `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`
    - `IMAGE_REGISTRY` / `IMAGE_TAG`
+     - use a concrete release tag such as `v0.1.x` for first public pulls
+     - `latest` is only published by the Images workflow when a `v*` release tag is pushed
+     - check release tags with:
+       `curl -fsS https://ghcr.io/v2/hejiajiudeeyu/rsp-platform/tags/list`
 3. `docker compose --env-file .env up -d`
 4. Check:
    - `GET ${PUBLIC_SITE_ADDRESS%/}/healthz`
@@ -44,5 +48,7 @@ It includes:
 - the gateway uses `DELEXEC_HOME=/var/lib/delexec-ops` inside the container and can read `PLATFORM_ADMIN_API_KEY` from env as a legacy secret source
 - first-time `/gateway/session/setup` calls are blocked unless the caller is local or presents `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`
 - this compose file is registry-only; it does not depend on local source build context
+- this profile pulls only `rsp-platform`, `rsp-relay`, and `rsp-gateway`; caller/responder container images belong to legacy/internal profiles, not the public-stack path
+- before a first anonymous pull, the GHCR packages for `rsp-platform`, `rsp-relay`, and `rsp-gateway` must be public
 - for public DNS names, let `caddy` terminate TLS via `PUBLIC_SITE_ADDRESS`
 - smoke entrypoint: `npm run test:public-stack-smoke`

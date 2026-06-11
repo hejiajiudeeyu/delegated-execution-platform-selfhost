@@ -39,6 +39,10 @@ Operator surface:
    - `PUBLIC_SITE_ADDRESS`
    - `PLATFORM_ADMIN_API_KEY`
    - `IMAGE_REGISTRY` and `IMAGE_TAG` if pulling published images
+     - use a concrete release tag such as `v0.1.x`; do not rely on `latest` for a first public install
+     - the release workflow publishes `latest` only for `v*` release tags
+     - check published tags with:
+       `curl -fsS https://ghcr.io/v2/hejiajiudeeyu/rsp-platform/tags/list`
 3. Start the stack:
 
 ```bash
@@ -122,3 +126,12 @@ Recommended checks:
 Current default image namespace in this repository is:
 
 - `ghcr.io/hejiajiudeeyu`
+
+The public-stack image set is:
+
+- `rsp-platform`
+- `rsp-relay`
+- `rsp-gateway`
+
+These three GHCR packages must be public before anonymous operator pulls can work.
+The `rsp-caller` and `rsp-responder` images are not part of the public-stack release path; they are only referenced by legacy/internal compose profiles.

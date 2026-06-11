@@ -73,6 +73,7 @@ Profile 意图：
   - 当隐藏审核测试走独立 relay 路径时传 `REVIEW_TRANSPORT_BASE_URL`
 
 当前 compose 文件同时保留 `image` 和 `build`，便于本地 source build。在 registry 环境中，请把 `IMAGE_REGISTRY` 与 `IMAGE_TAG` 指向已发布镜像。
+对于 `deploy/public-stack`，请使用具体发布标签，例如 `v0.1.x`；`latest` 只会从 `v*` release tag 发布，不应作为首次匿名拉取目标。
 
 本仓库当前默认镜像命名空间：
 
@@ -166,5 +167,7 @@ RESPONDER_SIGNING_PRIVATE_KEY_PEM=-----BEGIN PRIVATE KEY-----
 推荐发布顺序：
 
 1. 发布共享测试结果
-2. 发布 `rsp-platform`、`rsp-caller`、`rsp-responder`
+2. 为 public-stack 路径发布 `rsp-platform`、`rsp-gateway` 与 `rsp-relay`
 3. 将部署示例更新为发布的 `IMAGE_TAG`
+
+`rsp-caller` 与 `rsp-responder` 只被遗留/内部 profile 引用，不是 public-stack 的必需镜像。
