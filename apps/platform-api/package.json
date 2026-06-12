@@ -36,7 +36,7 @@
   ],
   "dependencies": {
     "@delexec/billing-store": "0.1.0",
-    "@delexec/contracts": "^0.1.1",
+    "@delexec/contracts": "^0.1.2",
     "@delexec/postgres-store": "0.1.0",
     "@delexec/runtime-utils": "0.1.0",
     "@delexec/sqlite-store": "0.1.0",

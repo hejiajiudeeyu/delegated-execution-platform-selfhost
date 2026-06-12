@@ -185,7 +185,8 @@ async function waitHealth(url, timeoutMs = 120000) {
     try {
       const response = await fetch(url);
       if (response.ok) {
-        return response;
+        await response.arrayBuffer();
+        return;
       }
     } catch {
       // retry
