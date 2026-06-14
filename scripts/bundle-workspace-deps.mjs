@@ -105,7 +105,8 @@ function stageBundledWorkspaces(targetDir) {
   const bundledDependencies = Array.isArray(targetManifest.bundleDependencies) ? targetManifest.bundleDependencies : [];
   const workspaceIndex = workspacePackageIndex();
   const staged = [];
-  const { stageMarker } = buildTargetPaths(targetDir);
+  const { stagedNodeModulesDir, stageMarker } = buildTargetPaths(targetDir);
+  ensureDir(stagedNodeModulesDir);
 
   for (const packageName of bundledDependencies) {
     const workspacePackage = workspaceIndex.get(packageName);
