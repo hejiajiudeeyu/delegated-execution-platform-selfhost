@@ -570,4 +570,81 @@ describe("platform-api billing enforcement integration", () => {
       await billing.close();
     }
   });
+
+  it("refunds expired paid holds lazily when callers read balance and events", async () => {
+    const billing = await createBillingTestStore();
+    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", tokenTtlSeconds: 1 });
+    const responder = markBootstrapHotlinePaid(state);
+    const server = createPlatformServer({
+      serviceName: "platform-api-billing-expired-hold-test",
+      state
+    });
+    const baseUrl = await listenServer(server);
+
+    try {
+      const caller = await registerCaller(baseUrl, "billing-expired-hold@test.local");
+      await billing.store.createTenant(caller.user_id);
+      await billing.store.createRecharge({
+        recharge_id: "rch_billing_expired_hold_1",
+        tenant_id: caller.user_id,
+        amount_cents: 500,
+        currency: "PTS"
+      });
+
+      const token = await jsonRequest(baseUrl, "/v1/tokens/task", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${caller.api_key}` },
+        body: {
+          request_id: "req_billing_expired_hold_1",
+          responder_id: responder.responder_id,
+          hotline_id: responder.hotline_id,
+          billing: billingConsent()
+        }
+      });
+      expect(token.status).toBe(201);
+      expect((await billing.store.getBalance(caller.user_id)).credit_balance_cents).toBe(0);
+
+      const request = state.requests.get("req_billing_expired_hold_1");
+      request.billing.expires_at = new Date(Date.now() - 1000).toISOString();
+
+      const balance = await jsonRequest(baseUrl, "/v1/tenants/me/balance", {
+        headers: { Authorization: `Bearer ${caller.api_key}` }
+      });
+      expect(balance.status).toBe(200);
+      expect(balance.body.balance.credit_balance_cents).toBe(500);
+
+      const events = await jsonRequest(baseUrl, "/v1/requests/req_billing_expired_hold_1/events", {
+        headers: { Authorization: `Bearer ${caller.api_key}` }
+      });
+      expect(events.status).toBe(200);
+      expect(events.body.items.map((event) => event.event_type)).toEqual([
+        "BILLING_HELD",
+        "TASK_TOKEN_ISSUED",
+        "FAILED",
+        "BILLING_REFUNDED"
+      ]);
+      expect(events.body.items.find((event) => event.event_type === "FAILED")).toMatchObject({
+        actor_type: "platform",
+        status: "error",
+        error_code: "TASK_TOKEN_EXPIRED"
+      });
+
+      const ledger = await billing.store.getLedger(caller.user_id, {
+        kind: ["hold", "refund"]
+      });
+      expect(ledger.items.map((item) => item.kind).sort()).toEqual(["hold", "refund"]);
+
+      const secondBalance = await jsonRequest(baseUrl, "/v1/tenants/me/balance", {
+        headers: { Authorization: `Bearer ${caller.api_key}` }
+      });
+      expect(secondBalance.status).toBe(200);
+      const idempotentLedger = await billing.store.getLedger(caller.user_id, {
+        kind: ["hold", "refund"]
+      });
+      expect(idempotentLedger.items).toHaveLength(2);
+    } finally {
+      await closeServer(server);
+      await billing.close();
+    }
+  });
 });

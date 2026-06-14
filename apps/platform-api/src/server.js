@@ -432,6 +432,95 @@ function billingStoreError(error) {
   };
 }
 
+function tokenTtlSecondsForState(state) {
+  return Number(process.env.TOKEN_TTL_SECONDS || state.tokenTtlSeconds || 300);
+}
+
+function heldBillingExpiresAt(state, request) {
+  if (request.billing?.expires_at) {
+    return request.billing.expires_at;
+  }
+  if (!request.billing?.held_at) {
+    return null;
+  }
+  const heldAtMs = new Date(request.billing.held_at).getTime();
+  if (!Number.isFinite(heldAtMs)) {
+    return null;
+  }
+  return new Date(heldAtMs + tokenTtlSecondsForState(state) * 1000).toISOString();
+}
+
+function hasTerminalRequestEvent(request) {
+  return (request.events || []).some((event) => event.event_type === "COMPLETED" || event.event_type === "FAILED");
+}
+
+async function expireHeldBillingIfNeeded(state, request, { nowUtc = new Date() } = {}) {
+  if (!isBillingEnforced(state) || request.billing?.state !== "held" || hasTerminalRequestEvent(request)) {
+    return { changed: false };
+  }
+  if (!state.billingStore) {
+    return {
+      statusCode: 503,
+      error: { code: "BILLING_STORE_UNAVAILABLE", message: "billing store is not configured", retryable: true }
+    };
+  }
+
+  const expiresAt = heldBillingExpiresAt(state, request);
+  if (!expiresAt) {
+    return { changed: false };
+  }
+  const nowDate = new Date(nowUtc);
+  if (new Date(expiresAt).getTime() > nowDate.getTime()) {
+    return { changed: false };
+  }
+
+  try {
+    const refund = await state.billingStore.applyBalanceDelta({
+      tenantId: request.billing.tenant_id,
+      deltaCents: request.billing.hold_amount_cents,
+      kind: "refund",
+      direction: "system",
+      requestId: request.request_id,
+      recordedAt: nowDate
+    });
+    const finishedAt = nowDate.toISOString();
+    request.billing.state = "refunded";
+    request.billing.expires_at = expiresAt;
+    request.billing.refund_ledger_id = refund.ledger_id;
+    request.billing.refunded_at = refund.recorded_at;
+    appendRequestEvent(request, "FAILED", {
+      actor_type: "platform",
+      status: "error",
+      error_code: "TASK_TOKEN_EXPIRED",
+      finished_at: finishedAt
+    });
+    appendRequestEvent(request, "BILLING_REFUNDED", {
+      actor_type: "platform",
+      event_name: BILLING_EVENT.REQUEST_REFUNDED_FAILED,
+      amount_cents: request.billing.hold_amount_cents,
+      ledger_id: refund.ledger_id
+    });
+    return { changed: true };
+  } catch (error) {
+    return billingStoreError(error);
+  }
+}
+
+async function expireHeldBillingForTenant(state, tenantId, { nowUtc = new Date() } = {}) {
+  let changed = false;
+  for (const request of state.requests.values()) {
+    if (request.billing?.tenant_id !== tenantId) {
+      continue;
+    }
+    const result = await expireHeldBillingIfNeeded(state, request, { nowUtc });
+    if (result.error) {
+      return result;
+    }
+    changed = result.changed || changed;
+  }
+  return { changed };
+}
+
 async function applyBillingHoldIfNeeded(state, auth, request, catalogItem, body) {
   if (!isBillingEnforced(state)) {
     return { billingClaims: null };
@@ -495,7 +584,8 @@ async function applyBillingHoldIfNeeded(state, auth, request, catalogItem, body)
       billing_claims: cloneValue(billingClaims),
       hold_amount_cents: billingClaims.max_charge_cents,
       hold_ledger_id: ledger.ledger_id,
-      held_at: ledger.recorded_at
+      held_at: ledger.recorded_at,
+      expires_at: new Date(new Date(ledger.recorded_at).getTime() + tokenTtlSecondsForState(state) * 1000).toISOString()
     };
     appendRequestEvent(request, "BILLING_HELD", {
       actor_type: "platform",
@@ -1734,7 +1824,7 @@ function createTaskClaims(state, {
   billing = null
 }) {
   const issuedAt = Math.floor(Date.now() / 1000);
-  const tokenTtlSeconds = Number(process.env.TOKEN_TTL_SECONDS || state.tokenTtlSeconds);
+  const tokenTtlSeconds = tokenTtlSecondsForState(state);
   const claims = {
     iss: "delexec-platform-api",
     sub: callerId,
@@ -2860,6 +2950,15 @@ export function createPlatformServer({
           return;
         }
 
+        const reconciliation = await expireHeldBillingIfNeeded(state, request);
+        if (reconciliation.error) {
+          sendJson(res, reconciliation.statusCode || 400, { error: reconciliation.error });
+          return;
+        }
+        if (reconciliation.changed) {
+          await persistPlatformState(onStateChanged, state);
+        }
+
         sendJson(res, 200, { request_id: request.request_id, events: request.events, items: request.events });
         return;
       }
@@ -2881,6 +2980,7 @@ export function createPlatformServer({
         }
 
         const items = [];
+        let reconciliationChanged = false;
         for (const requestId of requestIds) {
           const request = state.requests.get(requestId);
           if (!request) {
@@ -2907,6 +3007,12 @@ export function createPlatformServer({
             });
             continue;
           }
+          const reconciliation = await expireHeldBillingIfNeeded(state, request);
+          if (reconciliation.error) {
+            sendJson(res, reconciliation.statusCode || 400, { error: reconciliation.error });
+            return;
+          }
+          reconciliationChanged = reconciliation.changed || reconciliationChanged;
           items.push({
             request_id: request.request_id,
             found: true,
@@ -2915,6 +3021,9 @@ export function createPlatformServer({
           });
         }
 
+        if (reconciliationChanged) {
+          await persistPlatformState(onStateChanged, state);
+        }
         sendJson(res, 200, { items });
         return;
       }
@@ -3008,8 +3117,17 @@ export function createPlatformServer({
           return;
         }
         try {
+          const nowUtc = url.searchParams.get("now_utc") || new Date();
+          const reconciliation = await expireHeldBillingForTenant(state, auth.user_id, { nowUtc });
+          if (reconciliation.error) {
+            sendJson(res, reconciliation.statusCode || 400, { error: reconciliation.error });
+            return;
+          }
+          if (reconciliation.changed) {
+            await persistPlatformState(onStateChanged, state);
+          }
           const balance = await billingStore.getBalance(auth.user_id, {
-            nowUtc: url.searchParams.get("now_utc") || new Date()
+            nowUtc
           });
           sendJson(res, 200, {
             tenant_id: auth.user_id,
@@ -3031,6 +3149,14 @@ export function createPlatformServer({
           return;
         }
         try {
+          const reconciliation = await expireHeldBillingForTenant(state, auth.user_id);
+          if (reconciliation.error) {
+            sendJson(res, reconciliation.statusCode || 400, { error: reconciliation.error });
+            return;
+          }
+          if (reconciliation.changed) {
+            await persistPlatformState(onStateChanged, state);
+          }
           const ledger = await billingStore.getLedger(auth.user_id, {
             limit: url.searchParams.get("limit") || undefined,
             cursor: url.searchParams.get("cursor") || undefined,
