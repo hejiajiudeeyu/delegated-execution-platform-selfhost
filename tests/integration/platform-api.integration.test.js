@@ -578,6 +578,194 @@ describe("platform-api integration", () => {
     expect(tagged.body.items.some((item) => item.hotline_id === "legalworks.contract.extractor.v1")).toBe(true);
   });
 
+  it("resolves a logical service to a healthy concrete hotline with token and delivery metadata", async () => {
+    const caller = await jsonRequest(baseUrl, "/v1/users/register", {
+      method: "POST",
+      body: { contact_email: "service-resolve@test.local" }
+    });
+    const callerAuth = {
+      Authorization: `Bearer ${caller.body.api_key}`
+    };
+
+    const first = await jsonRequest(baseUrl, "/v2/responders/register", {
+      method: "POST",
+      headers: callerAuth,
+      body: {
+        responder_id: "responder_mineru_a",
+        hotline_id: "mineru.machine-a.parse.v1",
+        service_id: "mineru.document.parse.v1",
+        display_name: "MinerU Machine A",
+        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        task_types: ["document_parse"],
+        capabilities: ["document.parse.pdf"],
+        tags: ["mineru"]
+      }
+    });
+    expect(first.status).toBe(201);
+
+    const second = await jsonRequest(baseUrl, "/v2/responders/register", {
+      method: "POST",
+      headers: callerAuth,
+      body: {
+        responder_id: "responder_mineru_b",
+        hotline_id: "mineru.machine-b.parse.v1",
+        service_id: "mineru.document.parse.v1",
+        display_name: "MinerU Machine B",
+        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        task_types: ["document_parse"],
+        capabilities: ["document.parse.pdf"],
+        tags: ["mineru"]
+      }
+    });
+    expect(second.status).toBe(201);
+
+    for (const responderId of ["responder_mineru_a", "responder_mineru_b"]) {
+      const approvedResponder = await jsonRequest(baseUrl, `/v2/admin/responders/${responderId}/approve`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${state.adminApiKey}` }
+      });
+      expect(approvedResponder.status).toBe(200);
+    }
+    for (const hotlineId of ["mineru.machine-a.parse.v1", "mineru.machine-b.parse.v1"]) {
+      const approvedHotline = await jsonRequest(baseUrl, `/v2/admin/hotlines/${hotlineId}/approve`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${state.adminApiKey}` }
+      });
+      expect(approvedHotline.status).toBe(200);
+    }
+
+    const degraded = await jsonRequest(baseUrl, "/v1/responders/responder_mineru_a/heartbeat", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${first.body.api_key}` },
+      body: { status: "degraded" }
+    });
+    expect(degraded.status).toBe(202);
+
+    const resolved = await jsonRequest(baseUrl, "/v1/service-resolutions", {
+      method: "POST",
+      headers: callerAuth,
+      body: {
+        request_id: "req_service_resolve_1",
+        service_id: "mineru.document.parse.v1",
+        capability: "document.parse.pdf",
+        task_type: "document_parse",
+        result_delivery: {
+          kind: "local",
+          address: "caller-controller"
+        }
+      }
+    });
+    expect(resolved.status).toBe(201);
+    expect(resolved.body.selected).toMatchObject({
+      service_id: "mineru.document.parse.v1",
+      responder_id: "responder_mineru_b",
+      hotline_id: "mineru.machine-b.parse.v1"
+    });
+    expect(resolved.body.task_token).toBeTypeOf("string");
+    expect(resolved.body.claims).toMatchObject({
+      request_id: "req_service_resolve_1",
+      responder_id: "responder_mineru_b",
+      hotline_id: "mineru.machine-b.parse.v1",
+      aud: "responder_mineru_b"
+    });
+    expect(resolved.body.delivery_meta).toMatchObject({
+      request_id: "req_service_resolve_1",
+      responder_id: "responder_mineru_b",
+      hotline_id: "mineru.machine-b.parse.v1",
+      result_delivery: {
+        kind: "local",
+        address: "caller-controller"
+      }
+    });
+    expect(state.requests.get("req_service_resolve_1")).toMatchObject({
+      caller_id: caller.body.user_id,
+      responder_id: "responder_mineru_b",
+      hotline_id: "mineru.machine-b.parse.v1"
+    });
+  });
+
+  it("returns a structured error when no service resolution candidate is available", async () => {
+    const caller = await jsonRequest(baseUrl, "/v1/users/register", {
+      method: "POST",
+      body: { contact_email: "service-resolve-missing@test.local" }
+    });
+    const resolved = await jsonRequest(baseUrl, "/v1/service-resolutions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${caller.body.api_key}` },
+      body: {
+        request_id: "req_service_resolve_missing_1",
+        service_id: "missing.document.parse.v1"
+      }
+    });
+
+    expect(resolved.status).toBe(404);
+    expect(resolved.body.error).toMatchObject({
+      code: "CATALOG_SERVICE_NOT_FOUND",
+      retryable: false
+    });
+  });
+
+  it("rejects invalid service resolution delivery without binding request state", async () => {
+    const caller = await jsonRequest(baseUrl, "/v1/users/register", {
+      method: "POST",
+      body: { contact_email: "service-resolve-invalid-delivery@test.local" }
+    });
+    const callerAuth = {
+      Authorization: `Bearer ${caller.body.api_key}`
+    };
+
+    const registered = await jsonRequest(baseUrl, "/v2/responders/register", {
+      method: "POST",
+      headers: callerAuth,
+      body: {
+        responder_id: "responder_invalid_delivery_mineru",
+        hotline_id: "invalid.delivery.mineru.parse.v1",
+        service_id: "mineru.invalid-delivery.parse.v1",
+        display_name: "Invalid Delivery MinerU Parser",
+        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        task_types: ["document_parse"],
+        capabilities: ["document.parse.pdf"]
+      }
+    });
+    expect(registered.status).toBe(201);
+    expect(
+      (
+        await jsonRequest(baseUrl, "/v2/admin/responders/responder_invalid_delivery_mineru/approve", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${state.adminApiKey}` }
+        })
+      ).status
+    ).toBe(200);
+    expect(
+      (
+        await jsonRequest(baseUrl, "/v2/admin/hotlines/invalid.delivery.mineru.parse.v1/approve", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${state.adminApiKey}` }
+        })
+      ).status
+    ).toBe(200);
+
+    const resolved = await jsonRequest(baseUrl, "/v1/service-resolutions", {
+      method: "POST",
+      headers: callerAuth,
+      body: {
+        request_id: "req_service_resolve_invalid_delivery_1",
+        service_id: "mineru.invalid-delivery.parse.v1",
+        result_delivery: {
+          kind: "unsupported_delivery",
+          address: "caller-controller"
+        }
+      }
+    });
+
+    expect(resolved.status).toBe(400);
+    expect(resolved.body.error).toMatchObject({
+      code: "CONTRACT_INVALID_RESULT_DELIVERY",
+      retryable: false
+    });
+    expect(state.requests.has("req_service_resolve_invalid_delivery_1")).toBe(false);
+  });
+
   it("allows a caller to add the responder role on the same user", async () => {
     const caller = await jsonRequest(baseUrl, "/v1/users/register", {
       method: "POST",

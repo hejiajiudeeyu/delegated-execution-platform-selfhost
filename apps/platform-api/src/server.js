@@ -12,6 +12,7 @@ import {
   canonicalizeResultPackageForSignature,
   validateBillingUsage,
   validatePricingHint,
+  validateServiceResolutionRequest,
   validateTaskBillingClaims
 } from "@delexec/contracts";
 import { createBillingStore } from "@delexec/billing-store";
@@ -177,6 +178,7 @@ function createResponderIdentity({
   taskDeliveryAddress,
   taskTypes = [],
   capabilities = [],
+  serviceId = null,
   tags = [],
   summary = null,
   description = null,
@@ -249,6 +251,7 @@ function createResponderIdentity({
       template_ref: templateRef,
       task_types: taskTypes,
       capabilities,
+      service_id: serviceId,
       tags,
       summary,
       description,
@@ -1695,6 +1698,32 @@ function appendRequestEvent(request, eventType, detail = {}) {
   }, readNumberEnv(process.env.PLATFORM_REQUEST_EVENT_HISTORY_LIMIT, DEFAULT_REQUEST_EVENT_HISTORY_LIMIT));
 }
 
+function resolveServiceCandidates(state, body) {
+  const constraints = body.constraints && typeof body.constraints === "object" ? body.constraints : {};
+  const availability = constraints.availability_status || "healthy";
+  const maxQueueDepth = constraints.max_queue_depth;
+
+  return Array.from(state.catalog.values())
+    .map((item) => ({
+      ...item,
+      availability_status: resolveCatalogAvailability(item)
+    }))
+    .filter((item) => resolveCatalogVisibility(state, item) === "public")
+    .filter((item) => !body.service_id || item.service_id === body.service_id)
+    .filter((item) => !body.capability || (item.capabilities || []).includes(body.capability))
+    .filter((item) => !body.task_type || (item.task_types || []).includes(body.task_type))
+    .filter((item) => !availability || item.availability_status === availability)
+    .filter((item) => maxQueueDepth === undefined || Number(item.queue_depth || 0) <= Number(maxQueueDepth))
+    .sort((left, right) => {
+      const leftPriority = Number(left.service_priority || 100);
+      const rightPriority = Number(right.service_priority || 100);
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
+      }
+      return String(left.hotline_id).localeCompare(String(right.hotline_id));
+    });
+}
+
 function findMatchingRequestEvent(request, { eventType, responderId, hotlineId }) {
   return (request.events || []).find(
     (event) => event.event_type === eventType && event.responder_id === responderId && event.hotline_id === hotlineId
@@ -1792,6 +1821,7 @@ function buildSubmissionPayload(body) {
     task_delivery_address: body.task_delivery_address || `local://relay/${body.responder_id}/${body.hotline_id}`,
     task_types: normalizeStringList(body.task_types),
     capabilities: normalizeStringList(body.capabilities),
+    service_id: body.service_id || null,
     tags: normalizeStringList(body.tags),
     input_schema: body.input_schema || null,
     output_schema: body.output_schema || null,
@@ -2062,6 +2092,70 @@ async function issueTaskToken(state, auth, body) {
   return issued;
 }
 
+async function resolveServiceRequest(state, auth, body) {
+  const validation = validateServiceResolutionRequest(body);
+  if (!validation.valid) {
+    return {
+      error: {
+        code: "CONTRACT_INVALID_SERVICE_RESOLUTION_REQUEST",
+        message: validation.errors.join("; "),
+        retryable: false
+      },
+      statusCode: 400
+    };
+  }
+
+  const normalizedResultDelivery = normalizeResultDelivery(body.result_delivery || { kind: "local", address: "caller-controller" });
+  if (normalizedResultDelivery?.error) {
+    return normalizedResultDelivery;
+  }
+
+  const candidates = resolveServiceCandidates(state, body);
+  const selected = candidates[0];
+  if (!selected) {
+    return {
+      error: {
+        code: "CATALOG_SERVICE_NOT_FOUND",
+        message: "no enabled healthy hotline matches the requested service or capability",
+        retryable: false
+      },
+      statusCode: 404
+    };
+  }
+
+  const issued = await issueTaskToken(state, auth, {
+    ...body,
+    responder_id: selected.responder_id,
+    hotline_id: selected.hotline_id
+  });
+  if (issued.error) {
+    return issued;
+  }
+
+  const request = getOrCreateRequest(state, body.request_id);
+  const deliveryMeta = createDeliveryMeta(state, request, selected, normalizedResultDelivery);
+  request.service_id = body.service_id || selected.service_id || null;
+  request.capability = body.capability || null;
+  request.task_type = body.task_type || null;
+  request.request_kind ||= "remote_request";
+  request.request_visibility ||= "public";
+  appendRequestEvent(request, "DELIVERY_META_ISSUED", { actor_type: "caller" });
+
+  return {
+    selected: {
+      service_id: body.service_id || selected.service_id || null,
+      capability: body.capability || null,
+      responder_id: selected.responder_id,
+      hotline_id: selected.hotline_id,
+      availability_status: selected.availability_status,
+      selection_reason: "healthy_deterministic"
+    },
+    task_token: issued.task_token,
+    claims: issued.claims,
+    delivery_meta: deliveryMeta
+  };
+}
+
 function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCreate = false } = {}) {
   if (!body.responder_id || !body.hotline_id || !body.display_name || !body.responder_public_key_pem) {
     return {
@@ -2205,6 +2299,7 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
     template_ref: templateRef,
     task_types: submissionPayload.task_types,
     capabilities: submissionPayload.capabilities,
+    service_id: submissionPayload.service_id || existingItem?.service_id || null,
     tags: submissionPayload.tags,
     input_schema: submissionPayload.input_schema,
     output_schema: submissionPayload.output_schema,
@@ -2309,6 +2404,7 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
     submission_version: submissionVersion,
     task_types: catalogItem.task_types,
     capabilities: catalogItem.capabilities,
+    service_id: catalogItem.service_id || null,
     tags: catalogItem.tags
   };
 }
@@ -2512,6 +2608,7 @@ export function createPlatformServer({
         const taskTypeFilter = url.searchParams.get("task_type");
         const capabilityFilter = url.searchParams.get("capability");
         const tagFilter = url.searchParams.get("tag");
+        const serviceIdFilter = url.searchParams.get("service_id");
         const items = Array.from(state.catalog.values())
           .map((item) => ({
             ...item,
@@ -2523,6 +2620,7 @@ export function createPlatformServer({
           .filter((item) => !taskTypeFilter || (item.task_types || []).includes(taskTypeFilter))
           .filter((item) => !capabilityFilter || (item.capabilities || []).includes(capabilityFilter))
           .filter((item) => !tagFilter || (item.tags || []).includes(tagFilter))
+          .filter((item) => !serviceIdFilter || item.service_id === serviceIdFilter)
           .map((item) => sanitizeCatalogItemForResponse(state, item));
 
         sendJson(res, 200, { items });
@@ -2534,12 +2632,14 @@ export function createPlatformServer({
         const capabilityFilter = url.searchParams.get("capability");
         const tagFilter = url.searchParams.get("tag");
         const responderFilter = url.searchParams.get("responder_id");
+        const serviceIdFilter = url.searchParams.get("service_id");
         const items = Array.from(state.catalog.values())
           .filter((item) => resolveCatalogVisibility(state, item) === "public")
           .filter((item) => !taskTypeFilter || (item.task_types || []).includes(taskTypeFilter))
           .filter((item) => !capabilityFilter || (item.capabilities || []).includes(capabilityFilter))
           .filter((item) => !tagFilter || (item.tags || []).includes(tagFilter))
           .filter((item) => !responderFilter || item.responder_id === responderFilter)
+          .filter((item) => !serviceIdFilter || item.service_id === serviceIdFilter)
           .map((item) => buildMarketplaceHotlineSummary(state, item));
 
         sendJson(res, 200, { items });
@@ -2660,6 +2760,24 @@ export function createPlatformServer({
         await persistPlatformState(onStateChanged, state);
 
         sendJson(res, 201, issued);
+        return;
+      }
+
+      if (method === "POST" && pathname === "/v1/service-resolutions") {
+        const auth = requireCaller(req, res, state);
+        if (!auth) {
+          return;
+        }
+
+        const body = await parseJsonBody(req);
+        const resolved = await resolveServiceRequest(state, auth, body);
+        if (resolved.error) {
+          sendJson(res, resolved.statusCode || 400, { error: resolved.error });
+          return;
+        }
+        await persistPlatformState(onStateChanged, state);
+
+        sendJson(res, 201, resolved);
         return;
       }
 

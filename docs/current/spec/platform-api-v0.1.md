@@ -129,6 +129,7 @@ Query 参数：
 - `task_type`（可选）
 - `capability`（可选）
 - `tag`（可选）
+- `service_id`（可选，逻辑服务分组标识，用于平台侧 resolve）
 
 200 响应示例：
 ```json
@@ -137,6 +138,7 @@ Query 参数：
     {
       "hotline_id": "foxlab.text.classifier.v1",
       "responder_id": "responder_foxlab",
+      "service_id": "mineru.document.parse.v1",
       "display_name": "FoxLab Text Classifier",
       "capabilities": ["classification", "customer_support"],
       "task_types": ["text_classification"],
@@ -175,17 +177,42 @@ Query 参数：
 以下字段属于推荐增强，不是 L0 必备：
 - `capabilities[]`、`supported_task_types[]`、`version`
 - `sla_hint.*`、`eta_hint.*`
+- `service_id`（可选，逻辑服务池标识）
 
 `GET /v1/catalog/search` 额外字段（仅搜索模式）：
 - `score`、`match_reasons`、`score_breakdown`
 
 说明（可扩展性）：
-- 当前建议优先使用遍历/分类过滤。
-- `task_delivery` / `result_delivery` 不在目录批量接口返回；Caller 需在 token 签发后按 `request_id` 单次申请投递元数据。
-- `task_delivery.address` 的值只保证是可投递的 opaque transport endpoint，不保证是邮箱地址、URL 或固定 URI 形态。
-- 当前实现会在目录列表直接返回 `responder_public_key_pem`，供 Caller 在创建本地请求记录与验签时绑定信任根。
-- 后续可新增 `GET /v1/catalog/search`，支持联想、模糊匹配与领域策略。
-- 为保持兼容，`GET /v2/hotlines` 长期保留，不因搜索增强而下线。
+  - 当前建议优先使用遍历/分类过滤。
+  - `task_delivery` / `result_delivery` 不在目录批量接口返回；Caller 需在 token 签发后按 `request_id` 单次申请投递元数据。
+  - `task_delivery.address` 的值只保证是可投递的 opaque transport endpoint，不保证是邮箱地址、URL 或固定 URI 形态。
+  - 当前实现会在目录列表直接返回 `responder_public_key_pem`，供 Caller 在创建本地请求记录与验签时绑定信任根。
+  - 后续可新增 `GET /v1/catalog/search`，支持联想、模糊匹配与领域策略。
+  - 为保持兼容，`GET /v2/hotlines` 长期保留，不因搜索增强而下线。
+
+## 3.1.2 平台侧服务解析（增量）
+
+- 方法：`POST /v1/service-resolutions`
+- 用途：Caller 提交 `service_id` 或 `capability`，平台选择一个具体 `responder_id + hotline_id` 并返回 token / delivery-meta
+
+请求字段（Body）：
+- `request_id`（必需）
+- `service_id`（可选）
+- `capability`（可选）
+- `task_type`（可选）
+- `constraints`（可选）
+- `result_delivery`（可选）
+
+返回字段：
+- `selected.responder_id`
+- `selected.hotline_id`
+- `task_token`
+- `claims`
+- `delivery_meta`
+
+说明：
+- 平台仍然只把 token 和 delivery-meta 绑定到具体 responder/hotline。
+- 解析策略优先保证可用性；MVP 默认偏向 `healthy` 候选。
 
 ## 3.2 hotline registration / catalog submission
 
