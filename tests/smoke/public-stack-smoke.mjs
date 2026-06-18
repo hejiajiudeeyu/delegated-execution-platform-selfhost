@@ -227,6 +227,24 @@ async function runScenario(baseUrl) {
   if (!consoleResponse.ok) {
     throw new Error(`console_static_failed: ${consoleResponse.status}`);
   }
+  const consoleHtml = await consoleResponse.text();
+  if (!consoleHtml.includes("Platform Console")) {
+    throw new Error("console_static_wrong_content: missing Platform Console marker");
+  }
+  if (consoleHtml.includes("/src/main.tsx")) {
+    throw new Error("console_static_wrong_entry: absolute dev entry leaks outside /console/");
+  }
+  if (consoleHtml.includes('id="root"')) {
+    throw new Error("console_static_wrong_mount: expected #app mount for bundled legacy console");
+  }
+  const mainJsResponse = await fetch(`${baseUrl}/console/src/main.js`);
+  if (!mainJsResponse.ok) {
+    throw new Error(`console_static_asset_failed: ${mainJsResponse.status}`);
+  }
+  const mainJsType = mainJsResponse.headers.get("content-type") || "";
+  if (!mainJsType.includes("javascript")) {
+    throw new Error(`console_static_asset_mime: ${mainJsType || "missing"}`);
+  }
 
   const sessionSetup = await jsonRequest(baseUrl, "/gateway/session/setup", {
     method: "POST",

@@ -41,7 +41,15 @@ describe("platform console gateway integration", () => {
     try {
       const consoleResponse = await fetch(`${gatewayUrl}/`);
       expect(consoleResponse.status).toBe(200);
-      expect(await consoleResponse.text()).toContain("Platform Console");
+      const consoleHtml = await consoleResponse.text();
+      expect(consoleHtml).toContain("Platform Console");
+      expect(consoleHtml).toContain('id="app"');
+      expect(consoleHtml).toContain('src="./src/main.js"');
+      expect(consoleHtml).not.toContain("/src/main.tsx");
+
+      const mainJsResponse = await fetch(`${gatewayUrl}/src/main.js`);
+      expect(mainJsResponse.status).toBe(200);
+      expect(mainJsResponse.headers.get("content-type")).toContain("javascript");
 
       const sessionBefore = await jsonRequest(gatewayUrl, "/session");
       expect(sessionBefore.status).toBe(200);
