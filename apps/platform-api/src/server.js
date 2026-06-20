@@ -8,10 +8,13 @@ import {
   BILLING_ERROR_CODE,
   BILLING_EVENT,
   PRICING_MODEL,
+  TRUST_TIER,
   buildStructuredError,
   canonicalizeResultPackageForSignature,
   validateBillingUsage,
+  validateCatalogGuidanceFields,
   validatePricingHint,
+  validateResponderTrustTier,
   validateServiceResolutionRequest,
   validateTaskBillingClaims
 } from "@delexec/contracts";
@@ -40,6 +43,54 @@ const DEFAULT_REQUEST_EVENT_HISTORY_LIMIT = 200;
 const DEFAULT_TELEMETRY_HISTORY_LIMIT = 5000;
 const DEFAULT_HOTLINE_QUOTA_PER_RESPONDER = 25;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
+const PLACEHOLDER_EMAIL_DOMAINS = Object.freeze(["test.local", "example.com", "example.local"]);
+
+function isSelfHostDeployment() {
+  const mode = String(process.env.PLATFORM_DEPLOYMENT_MODE || "public").trim().toLowerCase();
+  return mode === "self-host" || mode === "selfhost";
+}
+
+function resolveDeliveryEmail(body = {}, existing = null) {
+  return body.delivery_email || body.contact_email || existing || null;
+}
+
+function isPlaceholderEmail(email) {
+  if (!email || typeof email !== "string") {
+    return false;
+  }
+  const domain = email.split("@")[1]?.trim().toLowerCase();
+  if (!domain) {
+    return false;
+  }
+  return PLACEHOLDER_EMAIL_DOMAINS.some((placeholder) => domain === placeholder || domain.endsWith(`.${placeholder}`));
+}
+
+function mergeTagsAndCapabilities(body = {}) {
+  const tags = normalizeStringList(body.tags);
+  const capabilities = normalizeStringList(body.capabilities);
+  return Array.from(new Set([...tags, ...capabilities]));
+}
+
+function stripLegacyPricingTrustTier(pricingHint) {
+  if (!pricingHint || typeof pricingHint !== "object") {
+    return pricingHint;
+  }
+  const { trust_tier: _legacyTrustTier, ...rest } = pricingHint;
+  return rest;
+}
+
+function resolveResponderTrustTier(body = {}, existingResponder = null, pricingHint = null) {
+  if (body.trust_tier !== undefined && body.trust_tier !== null) {
+    return body.trust_tier;
+  }
+  if (existingResponder?.trust_tier) {
+    return existingResponder.trust_tier;
+  }
+  if (pricingHint?.trust_tier) {
+    return pricingHint.trust_tier;
+  }
+  return TRUST_TIER.UNTRUSTED;
+}
 
 function readNumberEnv(value, fallback) {
   const parsed = Number(value);
@@ -322,8 +373,71 @@ function createTemplateBundle(templateRef, options = {}) {
 }
 
 function sanitizeCatalogItem(item) {
-  const { task_delivery_address, ...publicItem } = item;
+  const { task_delivery_address, capabilities: _legacyCapabilities, ...publicItem } = item;
   return publicItem;
+}
+
+function buildCatalogListItem(state, item) {
+  const responder = state.responders.get(item.responder_id) || null;
+  return {
+    hotline_id: item.hotline_id,
+    responder_id: item.responder_id,
+    display_name: item.display_name || item.hotline_id,
+    summary: item.summary || null,
+    input_summary: item.input_summary || null,
+    output_summary: item.output_summary || null,
+    recommended_for: item.recommended_for || null,
+    not_recommended_for: item.not_recommended_for || null,
+    limitations: item.limitations || null,
+    task_types: item.task_types || [],
+    tags: item.tags || [],
+    status: item.status || "disabled",
+    review_status: item.review_status || "pending",
+    availability_status: resolveCatalogAvailability(item),
+    catalog_visibility: resolveCatalogVisibility(state, item),
+    queue_depth: item.queue_depth ?? responder?.queue_depth ?? null,
+    est_exec_p95_s: item.est_exec_p95_s ?? responder?.est_exec_p95_s ?? null,
+    pricing_hint: item.pricing_hint || null,
+    submission_version: item.submission_version || 1,
+    trust_tier: responder?.trust_tier || null,
+    template_ref: item.template_ref || null,
+    review_reason: item.review_reason || null,
+    reviewed_by: item.reviewed_by || null,
+    responder_public_key_pem: item.responder_public_key_pem || null,
+    last_heartbeat_at: item.last_heartbeat_at || responder?.last_heartbeat_at || null,
+    updated_at: item.reviewed_at || item.submitted_at || item.last_heartbeat_at || null
+  };
+}
+
+function buildCatalogDetailItem(state, item) {
+  return {
+    ...buildCatalogListItem(state, item),
+    description: item.description || null,
+    input_schema: item.input_schema || null,
+    output_schema: item.output_schema || null,
+    input_examples: item.input_examples || null,
+    output_examples: item.output_examples || null,
+    template_ref: item.template_ref || null,
+    responder_profile: (() => {
+      const responder = state.responders.get(item.responder_id) || null;
+      if (!responder) {
+        return null;
+      }
+      return {
+        responder_id: responder.responder_id,
+        display_name: responder.display_name || responder.responder_id,
+        description: responder.description || null,
+        service_domain: responder.service_domain || [],
+        trust_tier: responder.trust_tier || null,
+        support_email: responder.support_email || null,
+        delivery_email: responder.delivery_email || responder.contact_email || null,
+        availability_status: responder.availability_status || null,
+        queue_depth: responder.queue_depth ?? null,
+        est_exec_p95_s: responder.est_exec_p95_s ?? null,
+        last_heartbeat_at: responder.last_heartbeat_at || null
+      };
+    })()
+  };
 }
 
 function cloneValue(value) {
@@ -529,7 +643,10 @@ async function applyBillingHoldIfNeeded(state, auth, request, catalogItem, body)
     return { billingClaims: null };
   }
 
-  const pricingHint = catalogItem.pricing_hint || null;
+  const pricingHint = stripLegacyPricingTrustTier(catalogItem.pricing_hint || null);
+  const pricingHintVersion = catalogItem.submission_version || 1;
+  const responder = state.responders.get(catalogItem.responder_id) || null;
+  const responderTrustTier = responder?.trust_tier || null;
   const maxChargeCents = pricingHintMaxCharge(pricingHint);
   if (maxChargeCents <= 0) {
     return { billingClaims: null };
@@ -552,7 +669,10 @@ async function applyBillingHoldIfNeeded(state, auth, request, catalogItem, body)
   }
 
   const billingClaims = body.billing || null;
-  const claims = validateTaskBillingClaims(billingClaims, pricingHint);
+  const claims = validateTaskBillingClaims(billingClaims, pricingHint, {
+    responderTrustTier,
+    pricingHintVersion
+  });
   if (!claims.valid) {
     return billingValidationError(claims.errors);
   }
@@ -584,6 +704,7 @@ async function applyBillingHoldIfNeeded(state, auth, request, catalogItem, body)
       state: "held",
       tenant_id: auth.user_id,
       pricing_hint: cloneValue(pricingHint),
+      pricing_hint_version: pricingHintVersion,
       billing_claims: cloneValue(billingClaims),
       hold_amount_cents: billingClaims.max_charge_cents,
       hold_ledger_id: ledger.ledger_id,
@@ -654,7 +775,10 @@ async function applyTerminalBillingIfNeeded(state, request, body) {
   }
 
   const usage = body.usage || defaultBillingUsageForRequest(request);
-  const usageValidation = validateBillingUsage(usage, request.billing.pricing_hint, request.billing.billing_claims);
+  const usageValidation = validateBillingUsage(usage, request.billing.pricing_hint, request.billing.billing_claims, {
+    pricingHintVersion: request.billing.pricing_hint_version,
+    responderTrustTier: state.responders.get(request.responder_id)?.trust_tier || null
+  });
   if (!usageValidation.valid) {
     return billingValidationError(usageValidation.errors);
   }
@@ -954,17 +1078,24 @@ function buildMarketplaceHotlineSummary(state, item) {
     hotline_slug: hotlineSlug,
     display_name: item.display_name || item.hotline_id,
     summary: item.summary || item.description || `${item.display_name || item.hotline_id} handles ${(item.task_types || []).join(", ") || "remote tasks"}.`,
+    input_summary: item.input_summary || null,
+    output_summary: item.output_summary || null,
+    recommended_for: item.recommended_for || null,
+    not_recommended_for: item.not_recommended_for || null,
+    limitations: item.limitations || null,
     responder_display_name: responder?.display_name || responder?.responder_id || item.responder_id,
     task_types: item.task_types || [],
-    capabilities: item.capabilities || [],
     tags: item.tags || [],
     status: item.status || "disabled",
     review_status: item.review_status || "pending",
     availability_status: resolveCatalogAvailability(item),
     catalog_visibility: resolveCatalogVisibility(state, item),
+    queue_depth: item.queue_depth ?? responder?.queue_depth ?? null,
+    est_exec_p95_s: item.est_exec_p95_s ?? responder?.est_exec_p95_s ?? null,
     template_summary: buildMarketplaceTemplateSummary(template),
     latest_review_test: summarizeReviewTest(findLatestReviewTest(state, item.hotline_id)),
     support_email: responder?.support_email || null,
+    trust_tier: responder?.trust_tier || null,
     trust_badges: buildMarketplaceTrustBadges(state, item, responder),
     updated_at: item.reviewed_at || item.submitted_at || item.last_heartbeat_at || null
   };
@@ -1014,14 +1145,20 @@ function buildMarketplaceResponderProfile(state, responder) {
     responder_id: responder.responder_id,
     responder_slug: slugifyMarketplaceSegment(responder.display_name || responder.responder_id),
     display_name: responder.display_name || responder.responder_id,
-    summary: responder.summary || "",
+    description: responder.description || null,
+    service_domain: responder.service_domain || [],
+    summary: responder.summary || responder.description || "",
+    trust_tier: responder.trust_tier || null,
     availability_status: responder.availability_status || "unknown",
     review_status: responder.review_status || "pending",
     support_email: responder.support_email || null,
+    delivery_email: responder.delivery_email || responder.contact_email || null,
+    queue_depth: responder.queue_depth ?? null,
+    est_exec_p95_s: responder.est_exec_p95_s ?? null,
     last_heartbeat_at: responder.last_heartbeat_at || null,
     hotline_count: hotlines.length,
     task_types: Array.from(new Set(hotlines.flatMap((item) => item.task_types || []))),
-    capabilities: Array.from(new Set(hotlines.flatMap((item) => item.capabilities || []))),
+    tags: Array.from(new Set(hotlines.flatMap((item) => item.tags || []))),
     trust_badges: Array.from(new Set(hotlines.flatMap((item) => item.trust_badges || []))),
     hotlines
   };
@@ -1702,6 +1839,7 @@ function resolveServiceCandidates(state, body) {
   const constraints = body.constraints && typeof body.constraints === "object" ? body.constraints : {};
   const availability = constraints.availability_status || "healthy";
   const maxQueueDepth = constraints.max_queue_depth;
+  const capabilityOrTag = body.capability || body.tag || null;
 
   return Array.from(state.catalog.values())
     .map((item) => ({
@@ -1710,11 +1848,21 @@ function resolveServiceCandidates(state, body) {
     }))
     .filter((item) => resolveCatalogVisibility(state, item) === "public")
     .filter((item) => !body.service_id || item.service_id === body.service_id)
-    .filter((item) => !body.capability || (item.capabilities || []).includes(body.capability))
+    .filter(
+      (item) =>
+        !capabilityOrTag ||
+        (item.tags || []).includes(capabilityOrTag) ||
+        (item.capabilities || []).includes(capabilityOrTag)
+    )
     .filter((item) => !body.task_type || (item.task_types || []).includes(body.task_type))
     .filter((item) => !availability || item.availability_status === availability)
     .filter((item) => maxQueueDepth === undefined || Number(item.queue_depth || 0) <= Number(maxQueueDepth))
     .sort((left, right) => {
+      const leftQueue = Number(left.queue_depth || 0);
+      const rightQueue = Number(right.queue_depth || 0);
+      if (leftQueue !== rightQueue) {
+        return leftQueue - rightQueue;
+      }
       const leftPriority = Number(left.service_priority || 100);
       const rightPriority = Number(right.service_priority || 100);
       if (leftPriority !== rightPriority) {
@@ -1734,14 +1882,20 @@ function buildResponderAdminSummary(state, responder, catalogItems = []) {
   return {
     responder_id: responder.responder_id,
     owner_user_id: responder.owner_user_id,
-    contact_email: responder.contact_email,
+    delivery_email: responder.delivery_email || responder.contact_email,
+    contact_email: responder.delivery_email || responder.contact_email,
     support_email: responder.support_email,
+    description: responder.description || null,
+    service_domain: responder.service_domain || [],
+    trust_tier: responder.trust_tier || null,
     status: responder.status || "disabled",
     review_status: responder.review_status || "pending",
     reviewed_at: responder.reviewed_at || null,
     reviewed_by: responder.reviewed_by || null,
     review_reason: responder.review_reason || null,
     availability_status: responder.availability_status,
+    queue_depth: responder.queue_depth ?? null,
+    est_exec_p95_s: responder.est_exec_p95_s ?? null,
     last_heartbeat_at: responder.last_heartbeat_at,
     hotline_ids: responder.hotline_ids,
     hotline_count: catalogItems.length,
@@ -1753,7 +1907,6 @@ function buildResponderAdminSummary(state, responder, catalogItems = []) {
       catalog_visibility: resolveCatalogVisibility(state, item),
       availability_status: resolveCatalogAvailability(item),
       task_types: item.task_types || [],
-      capabilities: item.capabilities || [],
       tags: item.tags || []
     }))
   };
@@ -1810,6 +1963,23 @@ function appendReviewEvent(state, auth, reviewStatus, target, detail = {}) {
 }
 
 function buildSubmissionPayload(body) {
+  const mergedTags = mergeTagsAndCapabilities(body);
+  const guidance = validateCatalogGuidanceFields({
+    recommended_for: body.recommended_for,
+    not_recommended_for: body.not_recommended_for,
+    limitations: body.limitations
+  });
+  const normalizedGuidance = guidance.valid
+    ? guidance.normalized
+    : {
+        recommended_for: Array.isArray(body.recommended_for) ? body.recommended_for : null,
+        not_recommended_for: Array.isArray(body.not_recommended_for) ? body.not_recommended_for : null,
+        limitations: Array.isArray(body.limitations) ? body.limitations : null
+      };
+  const serviceId = isSelfHostDeployment() ? body.service_id || null : null;
+  const pricingHint =
+    body.pricing_hint === undefined ? undefined : stripLegacyPricingTrustTier(body.pricing_hint === null ? null : body.pricing_hint);
+
   return {
     responder_id: body.responder_id,
     hotline_id: body.hotline_id,
@@ -1820,23 +1990,25 @@ function buildSubmissionPayload(body) {
     responder_public_key_pem: body.responder_public_key_pem,
     task_delivery_address: body.task_delivery_address || `local://relay/${body.responder_id}/${body.hotline_id}`,
     task_types: normalizeStringList(body.task_types),
-    capabilities: normalizeStringList(body.capabilities),
-    service_id: body.service_id || null,
-    tags: normalizeStringList(body.tags),
+    service_id: serviceId,
+    tags: mergedTags,
     input_schema: body.input_schema || null,
     output_schema: body.output_schema || null,
     input_attachments: body.input_attachments || null,
     output_attachments: body.output_attachments || null,
     input_examples: Array.isArray(body.input_examples) ? body.input_examples : null,
     output_examples: Array.isArray(body.output_examples) ? body.output_examples : null,
-    recommended_for: Array.isArray(body.recommended_for) ? body.recommended_for : null,
-    not_recommended_for: Array.isArray(body.not_recommended_for) ? body.not_recommended_for : null,
-    limitations: Array.isArray(body.limitations) ? body.limitations : null,
-    pricing_hint: body.pricing_hint === undefined ? undefined : body.pricing_hint,
+    recommended_for: normalizedGuidance.recommended_for,
+    not_recommended_for: normalizedGuidance.not_recommended_for,
+    limitations: normalizedGuidance.limitations,
+    pricing_hint: pricingHint,
     input_summary: body.input_summary || null,
     output_summary: body.output_summary || null,
-    contact_email: body.contact_email || null,
-    support_email: body.support_email || null
+    delivery_email: resolveDeliveryEmail(body),
+    support_email: body.support_email || null,
+    trust_tier: body.trust_tier,
+    responder_description: body.responder_description || null,
+    service_domain: normalizeStringList(body.service_domain)
   };
 }
 
@@ -1879,6 +2051,8 @@ function createTaskClaims(state, {
 
 function createDeliveryMeta(state, request, catalogItem, resultDelivery) {
   request.expected_signer_public_key_pem = catalogItem.responder_public_key_pem;
+  const responder = state.responders.get(catalogItem.responder_id) || null;
+  const deliveryEmail = responder?.delivery_email || responder?.contact_email || null;
   request.delivery_meta = {
     request_id: request.request_id,
     responder_id: catalogItem.responder_id,
@@ -1888,6 +2062,14 @@ function createDeliveryMeta(state, request, catalogItem, resultDelivery) {
       address: catalogItem.task_delivery_address,
       thread_hint: `req:${request.request_id}`
     },
+    secondary_task_delivery: deliveryEmail
+      ? {
+          kind: "email",
+          address: deliveryEmail,
+          thread_hint: `req:${request.request_id}`,
+          payload_mode: "json_plus_attachments"
+        }
+      : null,
     result_delivery: {
       kind: resultDelivery.kind,
       address: resultDelivery.address,
@@ -1898,6 +2080,13 @@ function createDeliveryMeta(state, request, catalogItem, resultDelivery) {
     },
     responder_public_key_pem: catalogItem.responder_public_key_pem
   };
+  if (deliveryEmail) {
+    appendRequestEvent(request, "SECONDARY_TASK_DELIVERY_CONFIGURED", {
+      actor_type: "platform",
+      delivery_kind: "email",
+      delivery_address: deliveryEmail
+    });
+  }
   return request.delivery_meta;
 }
 
@@ -2148,6 +2337,11 @@ async function resolveServiceRequest(state, auth, body) {
       responder_id: selected.responder_id,
       hotline_id: selected.hotline_id,
       availability_status: selected.availability_status,
+      queue_depth: selected.queue_depth ?? null,
+      est_exec_p95_s: selected.est_exec_p95_s ?? null,
+      recommended_for: selected.recommended_for || null,
+      not_recommended_for: selected.not_recommended_for || null,
+      limitations: selected.limitations || null,
       selection_reason: "healthy_deterministic"
     },
     task_token: issued.task_token,
@@ -2221,6 +2415,53 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
   }
 
   const submissionPayload = buildSubmissionPayload(body);
+  const guidanceValidation = validateCatalogGuidanceFields({
+    recommended_for: submissionPayload.recommended_for,
+    not_recommended_for: submissionPayload.not_recommended_for,
+    limitations: submissionPayload.limitations
+  });
+  if (!guidanceValidation.valid) {
+    return {
+      error: {
+        code: "CATALOG_GUIDANCE_INVALID",
+        message: guidanceValidation.errors.join("; ") || "catalog guidance fields are invalid",
+        retryable: false,
+        details: guidanceValidation.errors
+      },
+      statusCode: 400
+    };
+  }
+  submissionPayload.recommended_for = guidanceValidation.normalized.recommended_for;
+  submissionPayload.not_recommended_for = guidanceValidation.normalized.not_recommended_for;
+  submissionPayload.limitations = guidanceValidation.normalized.limitations;
+
+  const trustTier = resolveResponderTrustTier(body, existingResponder, body.pricing_hint);
+  const trustTierValidation = validateResponderTrustTier(trustTier);
+  if (!trustTierValidation.valid) {
+    return {
+      error: {
+        code: "CATALOG_TRUST_TIER_INVALID",
+        message: trustTierValidation.errors.join("; ") || "trust_tier is invalid",
+        retryable: false,
+        details: trustTierValidation.errors
+      },
+      statusCode: 400
+    };
+  }
+
+  const deliveryEmail = resolveDeliveryEmail(body, existingResponder?.delivery_email || existingResponder?.contact_email);
+  const explicitDeliveryEmail = body.delivery_email || body.contact_email || null;
+  if (explicitDeliveryEmail && isPlaceholderEmail(explicitDeliveryEmail)) {
+    return {
+      error: {
+        code: "CATALOG_DELIVERY_EMAIL_PLACEHOLDER",
+        message: "delivery_email must not use placeholder domains such as test.local",
+        retryable: false
+      },
+      statusCode: 400
+    };
+  }
+
   if (submissionPayload.pricing_hint !== undefined && submissionPayload.pricing_hint !== null) {
     const pricingHint = validatePricingHint(submissionPayload.pricing_hint);
     if (!pricingHint.valid) {
@@ -2235,6 +2476,34 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
       };
     }
   }
+  if (submissionPayload.service_id && isSelfHostDeployment()) {
+    const poolPeers = Array.from(state.catalog.values()).filter(
+      (item) => item.service_id === submissionPayload.service_id && item.hotline_id !== body.hotline_id
+    );
+    for (const peer of poolPeers) {
+      const peerPricing = JSON.stringify(peer.pricing_hint || null);
+      const nextPricing = JSON.stringify(submissionPayload.pricing_hint ?? existingItem?.pricing_hint ?? null);
+      const peerSchema = JSON.stringify({
+        input_schema: peer.input_schema || null,
+        output_schema: peer.output_schema || null
+      });
+      const nextSchema = JSON.stringify({
+        input_schema: submissionPayload.input_schema || null,
+        output_schema: submissionPayload.output_schema || null
+      });
+      if (peerPricing !== nextPricing || peerSchema !== nextSchema) {
+        return {
+          error: {
+            code: "SERVICE_POOL_INCONSISTENT",
+            message: "self-host service_id pool requires matching schema and pricing_hint across members",
+            retryable: false
+          },
+          statusCode: 409
+        };
+      }
+    }
+  }
+
   const ownerUserId = existingResponder?.owner_user_id || auth?.user_id || body.owner_user_id || randomId("user");
   const responderApiKey = existingResponder?.api_key || `sk_responder_${crypto.randomBytes(12).toString("hex")}`;
   const heartbeatAt = nowIso();
@@ -2256,18 +2525,35 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
     responder_public_keys_pem: existingResponder?.responder_public_keys_pem || [body.responder_public_key_pem],
     last_heartbeat_at: heartbeatAt,
     availability_status: "healthy",
-    contact_email: body.contact_email || state.users.get(ownerUserId)?.contact_email || `${body.responder_id}@test.local`,
+    trust_tier: trustTier,
+    description: submissionPayload.responder_description || null,
+    service_domain: submissionPayload.service_domain || [],
+    delivery_email: deliveryEmail || `${body.responder_id}@test.local`,
+    contact_email: deliveryEmail || `${body.responder_id}@test.local`,
     support_email: body.support_email || `support+${body.responder_id}@test.local`
   };
 
   const responderChanged =
     !existingResponder ||
-    responder.contact_email !== (body.contact_email || responder.contact_email) ||
+    responder.delivery_email !== (deliveryEmail || responder.delivery_email) ||
     responder.support_email !== (body.support_email || responder.support_email) ||
-    responder.responder_public_key_pem !== body.responder_public_key_pem;
+    responder.responder_public_key_pem !== body.responder_public_key_pem ||
+    responder.trust_tier !== trustTier ||
+    responder.description !== (submissionPayload.responder_description || responder.description) ||
+    JSON.stringify(responder.service_domain || []) !== JSON.stringify(submissionPayload.service_domain || []);
 
-  responder.contact_email = body.contact_email || responder.contact_email;
+  if (deliveryEmail) {
+    responder.delivery_email = deliveryEmail;
+    responder.contact_email = deliveryEmail;
+  }
   responder.support_email = body.support_email || responder.support_email;
+  responder.trust_tier = trustTier;
+  if (submissionPayload.responder_description) {
+    responder.description = submissionPayload.responder_description;
+  }
+  if (submissionPayload.service_domain?.length) {
+    responder.service_domain = submissionPayload.service_domain;
+  }
   responder.responder_public_key_pem = body.responder_public_key_pem;
   responder.responder_public_keys_pem = Array.from(new Set([body.responder_public_key_pem, ...(responder.responder_public_keys_pem || [])]));
   responder.hotline_ids = Array.from(new Set([...(responder.hotline_ids || []), body.hotline_id]));
@@ -2298,7 +2584,6 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
     last_heartbeat_at: existingItem?.last_heartbeat_at || heartbeatAt,
     template_ref: templateRef,
     task_types: submissionPayload.task_types,
-    capabilities: submissionPayload.capabilities,
     service_id: submissionPayload.service_id || existingItem?.service_id || null,
     tags: submissionPayload.tags,
     input_schema: submissionPayload.input_schema,
@@ -2618,12 +2903,28 @@ export function createPlatformServer({
           .filter((item) => !statusFilter || item.status === statusFilter)
           .filter((item) => !availabilityFilter || item.availability_status === availabilityFilter)
           .filter((item) => !taskTypeFilter || (item.task_types || []).includes(taskTypeFilter))
-          .filter((item) => !capabilityFilter || (item.capabilities || []).includes(capabilityFilter))
+          .filter(
+            (item) =>
+              !capabilityFilter ||
+              (item.tags || []).includes(capabilityFilter) ||
+              (item.capabilities || []).includes(capabilityFilter)
+          )
           .filter((item) => !tagFilter || (item.tags || []).includes(tagFilter))
           .filter((item) => !serviceIdFilter || item.service_id === serviceIdFilter)
-          .map((item) => sanitizeCatalogItemForResponse(state, item));
+          .map((item) => buildCatalogListItem(state, item));
 
         sendJson(res, 200, { items });
+        return;
+      }
+
+      const catalogHotlineMatch = pathname.match(/^\/v2\/hotlines\/([^/]+)$/);
+      if (method === "GET" && catalogHotlineMatch) {
+        const item = state.catalog.get(catalogHotlineMatch[1]);
+        if (!item || resolveCatalogVisibility(state, item) !== "public") {
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
+          return;
+        }
+        sendJson(res, 200, buildCatalogDetailItem(state, item));
         return;
       }
 
@@ -2636,7 +2937,12 @@ export function createPlatformServer({
         const items = Array.from(state.catalog.values())
           .filter((item) => resolveCatalogVisibility(state, item) === "public")
           .filter((item) => !taskTypeFilter || (item.task_types || []).includes(taskTypeFilter))
-          .filter((item) => !capabilityFilter || (item.capabilities || []).includes(capabilityFilter))
+          .filter(
+            (item) =>
+              !capabilityFilter ||
+              (item.tags || []).includes(capabilityFilter) ||
+              (item.capabilities || []).includes(capabilityFilter)
+          )
           .filter((item) => !tagFilter || (item.tags || []).includes(tagFilter))
           .filter((item) => !responderFilter || item.responder_id === responderFilter)
           .filter((item) => !serviceIdFilter || item.service_id === serviceIdFilter)
@@ -3164,11 +3470,23 @@ export function createPlatformServer({
         const heartbeatAt = nowIso();
         responder.last_heartbeat_at = heartbeatAt;
         responder.availability_status = body.status || "healthy";
+        if (body.queue_depth !== undefined) {
+          responder.queue_depth = Number(body.queue_depth);
+        }
+        if (body.est_exec_p95_s !== undefined) {
+          responder.est_exec_p95_s = Number(body.est_exec_p95_s);
+        }
 
         for (const item of state.catalog.values()) {
           if (item.responder_id === responderId) {
             item.last_heartbeat_at = heartbeatAt;
             item.availability_status = body.status || "healthy";
+            if (body.queue_depth !== undefined) {
+              item.queue_depth = Number(body.queue_depth);
+            }
+            if (body.est_exec_p95_s !== undefined) {
+              item.est_exec_p95_s = Number(body.est_exec_p95_s);
+            }
           }
         }
         await persistPlatformState(onStateChanged, state);

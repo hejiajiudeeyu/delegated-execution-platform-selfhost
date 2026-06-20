@@ -1,3 +1,5 @@
+import { renderKeyValueList } from "./human-view.js";
+
 function entityLabels(type) {
   return type === "responders"
     ? { plural: "Responders", singular: "Responder", idLabel: "Responder ID" }
@@ -79,7 +81,7 @@ export function renderBillingConsoleSection() {
         </div>
         <h3>Ledger</h3>
         <div id="billing-ledger" class="stack"></div>
-        <pre id="billing-output" class="output compact">No billing tenant loaded yet.</pre>
+        <div id="billing-output" class="human-panel">No billing tenant loaded yet.</div>
       </div>
     </section>
   `;
@@ -169,7 +171,7 @@ export function renderEntityCardsMarkup(items, type) {
           <div class="item-head">
             <div>
               <strong>${id}</strong>
-              <p>${type === "responders" ? item.contact_email || "no contact email" : item.display_name || "unnamed hotline"}</p>
+              <p>${type === "responders" ? item.delivery_email || item.contact_email || "no delivery email" : item.display_name || "unnamed hotline"}</p>
             </div>
             <span class="status ${status}">${status}</span>
           </div>
@@ -274,18 +276,7 @@ export function renderDetailSummary(item) {
   if (!item) {
     return `<div class="empty">No item selected yet.</div>`;
   }
-  const pairs = Object.entries(item)
-    .slice(0, 10)
-    .map(
-      ([key, value]) => `
-        <div class="item-card">
-          <strong>${key}</strong>
-          <p class="meta">${typeof value === "object" ? JSON.stringify(value) : String(value)}</p>
-        </div>
-      `
-    )
-    .join("");
-  return pairs || `<div class="empty">No detail fields available.</div>`;
+  return renderKeyValueList(Object.entries(item), { limit: 10 });
 }
 
 export function renderHistorySummary(items, title) {
