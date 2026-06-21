@@ -7,3 +7,4 @@ Mixed-version deployments are not part of the support promise.
 | --- | --- | --- | --- | --- |
 | `v0.1.0` | `v0.1.0` | `v0.1.0` | `v0.1.0` | Baseline L0 coordinated self-hosted release |
 | `v0.1.3` | `v0.1.3` | `v0.1.3` | `v0.1.3` | Console static entry fix for nginx `/console/` subpath |
+| `v0.1.4` | `v0.1.4` | `v0.1.4` | `v0.1.4` | Console sidebar layout, human-readable panels, unlock UI fixes |

@@ -1,9 +1,24 @@
 import {
-  LEGACY_CONSOLE_SECTIONS,
+  CONSOLE_NAV,
+  DEFAULT_EXPANDED_GROUPS,
+  DEFAULT_PANEL,
+  findNavLeaf,
+  findNavLeafBySection,
+  panelMeta,
+  renderSidebarMarkup
+} from "./nav-model.js";
+import {
+  renderCatalogSummary,
+  renderDetailPanel,
+  renderGatewayResponseSummary,
+  renderListLoadedSummary,
+  renderOverviewSummary
+} from "./human-view.js";
+import { renderConsoleShellMarkup } from "./shell-markup.js";
+import {
   renderAdminRequestCardsMarkup,
   renderAuditCardsMarkup,
   renderBillingBalanceSummary,
-  renderBillingConsoleSection,
   renderBillingLedgerSummary,
   renderDetailSummary,
   renderHistorySummary,
@@ -59,7 +74,13 @@ const sectionLabels = {
   billing: "billing"
 };
 
-const paginatedSections = LEGACY_CONSOLE_SECTIONS.filter((section) => section !== "billing");
+const paginatedSections = ["responders", "hotlines", "requests", "audit", "reviews"];
+
+const navState = {
+  activePanel: DEFAULT_PANEL,
+  previousPanel: DEFAULT_PANEL,
+  expandedGroups: new Set(DEFAULT_EXPANDED_GROUPS)
+};
 
 async function requestJson(baseUrl, pathname, { method = "GET", body } = {}) {
   const headers = {};
@@ -106,199 +127,13 @@ function setSessionToken(token) {
 }
 
 const app = document.querySelector("#app");
+app.innerHTML = renderConsoleShellMarkup();
 
-app.innerHTML = `
-  <main class="shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">Control Plane</p>
-        <h1>Platform Control</h1>
-        <p class="lede">Health, Hotline catalog, request oversight, and operator actions for the platform through a local gateway.</p>
-      </div>
-      <div class="status-block">
-        <span class="pill">Health</span>
-        <span class="pill cool">Metrics</span>
-        <span class="pill warm">Admin</span>
-      </div>
-    </section>
-
-    <section class="card endpoint">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Local Session</p>
-          <h2>Unlock Operator Gateway</h2>
-        </div>
-        <button id="logout-session" class="ghost">Logout</button>
-      </div>
-      <div id="session-state" class="stack"></div>
-      <div class="grid three">
-        <div>
-          <label>Passphrase</label>
-          <input id="session-passphrase" type="password" placeholder="At least 8 characters" />
-        </div>
-        <div>
-          <label>New Passphrase</label>
-          <input id="session-next-passphrase" type="password" placeholder="For setup or rotation" />
-        </div>
-        <div>
-          <label>Bootstrap Secret</label>
-          <input id="session-bootstrap-secret" type="password" placeholder="Required when gateway is public" />
-        </div>
-      </div>
-      <div class="actions inline">
-        <button id="setup-session">Create Local Passphrase</button>
-        <button id="login-session" class="ghost">Unlock</button>
-        <button id="change-passphrase" class="ghost">Change Passphrase</button>
-      </div>
-      <pre id="session-output" class="output compact">Operator session not initialized yet.</pre>
-    </section>
-
-    <section class="card endpoint">
-      <div class="section-head">
-        <div>
-          <p class="eyebrow">Gateway Credentials</p>
-          <h2>Platform Endpoint</h2>
-        </div>
-        <div class="actions inline">
-          <button id="save-credentials">Save Credential</button>
-          <button id="refresh-overview">Refresh Overview</button>
-        </div>
-      </div>
-      <div class="grid three">
-        <div>
-          <label>Platform API URL</label>
-          <input id="platform-url" value="http://127.0.0.1:8080" />
-        </div>
-        <div>
-          <label>Operator API Key</label>
-          <input id="platform-api-key" type="password" placeholder="sk_admin_..." />
-        </div>
-        <div>
-          <label>Credential State</label>
-          <p id="credential-state" class="meta">Not configured yet.</p>
-        </div>
-      </div>
-      <label>Approval / Audit Reason</label>
-      <input id="action-reason" value="operator review" />
-      <label>Reviewer Notes</label>
-      <textarea id="reviewer-notes" rows="4" placeholder="What was reviewed, what is being approved/rejected, and any follow-up."></textarea>
-          <label>Global Filter</label>
-      <input id="global-filter" placeholder="responder, hotline, request, action..." />
-      <label>Section Filter</label>
-      <select id="section-filter">
-        <option value="all">all</option>
-        <option value="responders">responders</option>
-        <option value="hotlines">hotlines</option>
-        <option value="requests">requests</option>
-        <option value="audit">audit</option>
-        <option value="reviews">reviews</option>
-        <option value="billing">billing</option>
-      </select>
-    </section>
-
-    <div id="console-body">
-      <section class="grid three-panels">
-        <div class="card">
-          <h2>Overview</h2>
-          <pre id="overview-output" class="output">Waiting for platform gateway.</pre>
-        </div>
-        <div class="card">
-          <div class="section-head">
-            <h2>Responders</h2>
-            <div class="actions inline">
-              <button id="responders-prev" class="ghost">Prev</button>
-              <button id="responders-next" class="ghost">Next</button>
-              <button id="refresh-responders" class="ghost">Reload</button>
-            </div>
-          </div>
-          <p id="responders-page" class="meta">responders: no data</p>
-          <div id="responders-list" class="stack"></div>
-        </div>
-        <div class="card">
-          <div class="section-head">
-            <h2>Hotlines</h2>
-            <div class="actions inline">
-              <button id="hotlines-prev" class="ghost">Prev</button>
-              <button id="hotlines-next" class="ghost">Next</button>
-              <button id="refresh-hotlines" class="ghost">Reload</button>
-            </div>
-          </div>
-          <p id="hotlines-page" class="meta">hotlines: no data</p>
-          <div id="hotlines-list" class="stack"></div>
-        </div>
-      </section>
-
-      <section class="grid two">
-        <div class="card">
-          <div class="section-head">
-            <h2>Requests</h2>
-            <div class="actions inline">
-              <button id="requests-prev" class="ghost">Prev</button>
-              <button id="requests-next" class="ghost">Next</button>
-              <button id="refresh-requests" class="ghost">Reload</button>
-            </div>
-          </div>
-          <p id="requests-page" class="meta">requests: no data</p>
-          <div id="requests-list" class="stack"></div>
-          <pre id="requests-output" class="output compact">No request data loaded yet.</pre>
-        </div>
-        <div class="card">
-          <div class="section-head">
-            <h2>Hotline Catalog Control</h2>
-            <button id="refresh-catalog" class="ghost">Reload</button>
-          </div>
-          <pre id="catalog-output" class="output compact">No catalog data loaded yet.</pre>
-        </div>
-      </section>
-
-      <section class="grid two">
-        <div class="card">
-          <div class="section-head">
-            <h2>Audit Trail</h2>
-            <div class="actions inline">
-              <button id="audit-prev" class="ghost">Prev</button>
-              <button id="audit-next" class="ghost">Next</button>
-              <button id="refresh-audit" class="ghost">Reload</button>
-            </div>
-          </div>
-          <p id="audit-page" class="meta">audit: no data</p>
-          <div id="audit-list" class="stack"></div>
-          <pre id="audit-output" class="output compact">No audit data loaded yet.</pre>
-        </div>
-        <div class="card">
-          <div class="section-head">
-            <h2>Responder Review Queue</h2>
-            <div class="actions inline">
-              <button id="reviews-prev" class="ghost">Prev</button>
-              <button id="reviews-next" class="ghost">Next</button>
-              <button id="refresh-reviews" class="ghost">Reload</button>
-            </div>
-          </div>
-          <p id="reviews-page" class="meta">reviews: no data</p>
-          <div id="reviews-list" class="stack"></div>
-          <pre id="reviews-output" class="output compact">No review data loaded yet.</pre>
-        </div>
-      </section>
-
-      ${renderBillingConsoleSection()}
-
-      <section class="grid one">
-        <div class="card">
-          <div class="section-head">
-            <h2>Selection Detail</h2>
-          </div>
-          <div id="reviewer-guidance" class="stack"></div>
-          <div id="review-action-summary" class="stack"></div>
-          <div id="detail-summary" class="stack"></div>
-          <div id="detail-history" class="stack"></div>
-          <pre id="detail-output" class="output compact">No item selected yet.</pre>
-        </div>
-      </section>
-    </div>
-  </main>
-`;
-
-const consoleBody = document.querySelector("#console-body");
+const sidebarNav = document.querySelector("#sidebar-nav");
+const sessionBadge = document.querySelector("#session-badge");
+const contentTitle = document.querySelector("#content-title");
+const contentDescription = document.querySelector("#content-description");
+const lockBanner = document.querySelector("#lock-banner");
 const sessionState = document.querySelector("#session-state");
 const sessionOutput = document.querySelector("#session-output");
 const sessionPassphraseInput = document.querySelector("#session-passphrase");
@@ -310,7 +145,6 @@ const credentialState = document.querySelector("#credential-state");
 const actionReasonInput = document.querySelector("#action-reason");
 const reviewerNotesInput = document.querySelector("#reviewer-notes");
 const globalFilterInput = document.querySelector("#global-filter");
-const sectionFilterInput = document.querySelector("#section-filter");
 const overviewOutput = document.querySelector("#overview-output");
 const requestsOutput = document.querySelector("#requests-output");
 const requestsList = document.querySelector("#requests-list");
@@ -349,6 +183,151 @@ function savePrefs() {
   localStorage.setItem(storageKeys.reviewerNotes, reviewerNotesInput.value);
 }
 
+function hasAdminCredentialsConfigured() {
+  const session = uiState.session || {};
+  return Boolean(session.admin_api_key_configured || uiState.credentials?.api_key_configured);
+}
+
+function isClientSessionActive() {
+  const session = uiState.session || {};
+  return Boolean(uiState.sessionToken && session.authenticated);
+}
+
+function operatorDataReady() {
+  return Boolean(isClientSessionActive() && hasAdminCredentialsConfigured());
+}
+
+function syncLockBanner() {
+  const onSettingsPanel = navState.activePanel === "session" || navState.activePanel === "credentials";
+  lockBanner.hidden = operatorDataReady() || onSettingsPanel;
+}
+
+function initialPanelFromUrl() {
+  const urlSection = new URLSearchParams(window.location.search).get("section");
+  const hashSection = window.location.hash.replace(/^#\/?/, "");
+  const pathSection = window.location.pathname.replace(/\/$/, "").split("/").pop();
+  const candidates = [urlSection, hashSection, pathSection].filter(Boolean);
+  for (const candidate of candidates) {
+    const leaf = findNavLeafBySection(candidate) || findNavLeaf(candidate);
+    if (leaf) {
+      return leaf.panel;
+    }
+  }
+  return DEFAULT_PANEL;
+}
+
+function renderContentHeader() {
+  const meta = panelMeta(navState.activePanel);
+  contentTitle.textContent = meta.title;
+  contentDescription.textContent = meta.description;
+}
+
+function renderSessionBadge() {
+  const session = uiState.session || {};
+  let status = "ready";
+  let label = "Ready";
+  if (session.setup_required) {
+    status = "setup";
+    label = "Setup required";
+  } else if (!session.authenticated) {
+    status = "locked";
+    label = "Locked";
+  } else if (!uiState.sessionToken) {
+    status = "locked";
+    label = "Unlock required";
+  } else if (!hasAdminCredentialsConfigured()) {
+    status = "needs-creds";
+    label = "Needs credentials";
+  }
+  sessionBadge.innerHTML = `
+    <span class="session-badge-dot session-badge-dot--${status}" aria-hidden="true"></span>
+    <span class="session-badge-label">${label}</span>
+  `;
+}
+
+function renderNav() {
+  sidebarNav.innerHTML = renderSidebarMarkup({
+    activePanel: navState.activePanel,
+    expandedGroups: navState.expandedGroups,
+    dataReady: operatorDataReady()
+  });
+}
+
+function syncPanelVisibility() {
+  for (const panel of document.querySelectorAll(".content-panel")) {
+    const isActive = panel.dataset.panel === navState.activePanel;
+    panel.hidden = !isActive;
+    panel.classList.toggle("is-active", isActive);
+  }
+}
+
+function expandGroupForPanel(panelId) {
+  for (const item of CONSOLE_NAV) {
+    if ("children" in item && item.children.some((child) => child.panel === panelId)) {
+      navState.expandedGroups.add(item.id);
+    }
+  }
+}
+
+async function refreshActivePanel() {
+  const refreshers = {
+    overview: refreshOverview,
+    responders: refreshResponders,
+    hotlines: refreshHotlines,
+    catalog: refreshCatalog,
+    requests: refreshRequests,
+    audit: refreshAudit,
+    reviews: refreshReviews,
+    billing: refreshBilling,
+    session: refreshSession,
+    credentials: refreshCredentials,
+    detail: async () => {}
+  };
+  const refresh = refreshers[navState.activePanel];
+  if (refresh) {
+    await refresh();
+  }
+}
+
+async function activatePanel(panelId, { pushHistory = true, force = false } = {}) {
+  if (panelId === "detail") {
+    navState.previousPanel = navState.activePanel;
+    navState.activePanel = panelId;
+    renderContentHeader();
+    renderNav();
+    syncPanelVisibility();
+    return;
+  }
+
+  const leaf = findNavLeaf(panelId);
+  if (!leaf) {
+    return;
+  }
+  if (!force && leaf.requiresData && !operatorDataReady()) {
+    activatePanel("session", { pushHistory: false, force: true });
+    return;
+  }
+
+  navState.activePanel = panelId;
+  expandGroupForPanel(panelId);
+  renderContentHeader();
+  renderNav();
+  syncPanelVisibility();
+  syncLockBanner();
+
+  if (pushHistory) {
+    const section = leaf.section;
+    const nextUrl = section
+      ? `${window.location.pathname}${window.location.search}#${section}`
+      : `${window.location.pathname}${window.location.search}`;
+    history.replaceState(null, "", nextUrl);
+  }
+
+  if (leaf.requiresData && operatorDataReady()) {
+    await refreshActivePanel();
+  }
+}
+
 function loadPrefs() {
   actionReasonInput.value = localStorage.getItem(storageKeys.actionReason) || actionReasonInput.value;
   sessionBootstrapSecretInput.value = localStorage.getItem(storageKeys.bootstrapSecret) || "";
@@ -356,7 +335,8 @@ function loadPrefs() {
   uiState.billing.tenantHistory = loadBillingTenantHistory();
   renderBillingTenantOptions();
   billingTenantInput.value = uiState.billing.tenantHistory[0] || billingTenantInput.value;
-  sectionFilterInput.value = initialSectionFilter();
+  navState.activePanel = initialPanelFromUrl();
+  expandGroupForPanel(navState.activePanel);
 }
 
 function loadBillingTenantHistory() {
@@ -390,14 +370,6 @@ function renderBillingTenantOptions() {
   billingTenantOptions.innerHTML = uiState.billing.tenantHistory.map((tenantId) => `<option value="${tenantId}"></option>`).join("");
 }
 
-function initialSectionFilter() {
-  const urlSection = new URLSearchParams(window.location.search).get("section");
-  const hashSection = window.location.hash.replace(/^#\/?/, "");
-  const pathSection = window.location.pathname.replace(/\/$/, "").split("/").pop();
-  const candidates = [urlSection, hashSection, pathSection].filter(Boolean);
-  return candidates.find((candidate) => LEGACY_CONSOLE_SECTIONS.includes(candidate)) || "all";
-}
-
 function applyFilter(items) {
   const term = globalFilterInput.value.trim().toLowerCase();
   if (!term) {
@@ -406,27 +378,7 @@ function applyFilter(items) {
   return items.filter((item) => JSON.stringify(item).toLowerCase().includes(term));
 }
 
-function sectionVisible(section) {
-  return sectionFilterInput.value === "all" || sectionFilterInput.value === section;
-}
-
-function updatePageSummary(section) {
-  pageOutputs[section].textContent = renderPaginationSummary(uiState.pagination[section], sectionLabels[section] || section);
-}
-
-function queryWithPagination(section) {
-  const query = new URLSearchParams({
-    limit: String(uiState.pagination[section].limit),
-    offset: String(uiState.pagination[section].offset)
-  });
-  const q = globalFilterInput.value.trim();
-  if (q) {
-    query.set("q", q);
-  }
-  return query;
-}
-
-function setDetail(item) {
+function setDetail(item, { navigate = true } = {}) {
   uiState.detail = item;
   reviewerGuidance.innerHTML = renderReviewerGuidance(item);
   detailSummary.innerHTML = renderDetailSummary(item);
@@ -453,12 +405,30 @@ function setDetail(item) {
     ${renderHistorySummary(matchingAudit, "Audit History")}
   `;
   reviewActionSummary.innerHTML = renderReviewActionSummary(item, reviewerNotesInput.value.trim(), combinedHistory);
-  detailOutput.textContent = item ? JSON.stringify(item, null, 2) : "No item selected yet.";
+  detailOutput.innerHTML = renderDetailPanel(item);
+  if (navigate) {
+    void activatePanel("detail", { pushHistory: false });
+  }
+}
+
+function updatePageSummary(section) {
+  pageOutputs[section].textContent = renderPaginationSummary(uiState.pagination[section], sectionLabels[section] || section);
+}
+
+function queryWithPagination(section) {
+  const query = new URLSearchParams({
+    limit: String(uiState.pagination[section].limit),
+    offset: String(uiState.pagination[section].offset)
+  });
+  const q = globalFilterInput.value.trim();
+  if (q) {
+    query.set("q", q);
+  }
+  return query;
 }
 
 function renderSessionState() {
   const session = uiState.session || {};
-  const ready = session.authenticated && uiState.credentials?.api_key_configured;
   if (session.setup_required) {
     sessionState.innerHTML = `
       <article class="item-card">
@@ -497,10 +467,12 @@ function renderSessionState() {
       </article>
     `;
   }
-  credentialState.textContent = uiState.credentials?.api_key_configured
+  credentialState.textContent = hasAdminCredentialsConfigured()
     ? "Configured in local encrypted secret store."
     : "Not configured yet.";
-  consoleBody.style.display = ready ? "" : "none";
+  renderSessionBadge();
+  renderNav();
+  syncLockBanner();
 }
 
 async function refreshSession() {
@@ -510,7 +482,7 @@ async function refreshSession() {
 }
 
 async function refreshCredentials() {
-  if (!uiState.session?.authenticated) {
+  if (!isClientSessionActive()) {
     uiState.credentials = null;
     renderSessionState();
     return;
@@ -535,7 +507,7 @@ async function setupSession() {
       ...(bootstrapSecret ? { bootstrap_secret: bootstrapSecret } : {})
     }
   });
-  sessionOutput.textContent = JSON.stringify(response, null, 2);
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Create Local Passphrase", response);
   if (response.status < 400) {
     setSessionToken(response.body?.token || null);
     sessionPassphraseInput.value = "";
@@ -550,16 +522,23 @@ async function loginSession() {
     method: "POST",
     body: { passphrase: sessionPassphraseInput.value.trim() }
   });
-  sessionOutput.textContent = JSON.stringify(response, null, 2);
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Unlock Operator Gateway", response);
   if (response.status < 400) {
     setSessionToken(response.body?.token || null);
+    if (response.body?.session) {
+      uiState.session = response.body.session;
+    }
     sessionPassphraseInput.value = "";
     sessionNextPassphraseInput.value = "";
     await refreshSession();
     await refreshCredentials();
-    if (uiState.credentials?.api_key_configured && !uiState.loaded) {
+    syncLockBanner();
+    if (operatorDataReady() && !uiState.loaded) {
       uiState.loaded = true;
       await refreshAll();
+    }
+    if (operatorDataReady() && (navState.activePanel === "session" || navState.activePanel === "overview")) {
+      await activatePanel(DEFAULT_PANEL, { pushHistory: false, force: true });
     }
   }
 }
@@ -570,7 +549,7 @@ async function logoutSession() {
     body: {}
   });
   setSessionToken(null);
-  sessionOutput.textContent = JSON.stringify(response, null, 2);
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Logout", response);
   uiState.session = response.body?.session || null;
   uiState.credentials = null;
   uiState.loaded = false;
@@ -582,7 +561,7 @@ async function changePassphrase() {
     method: "POST",
     body: { next_passphrase: sessionNextPassphraseInput.value.trim() }
   });
-  sessionOutput.textContent = JSON.stringify(response, null, 2);
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Change Passphrase", response);
   if (response.status < 400) {
     sessionPassphraseInput.value = "";
     sessionNextPassphraseInput.value = "";
@@ -598,7 +577,7 @@ async function saveCredentials() {
       api_key: platformKeyInput.value.trim()
     }
   });
-  sessionOutput.textContent = JSON.stringify(response, null, 2);
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Save Gateway Credentials", response);
   if (response.status < 400) {
     platformKeyInput.value = "";
     await refreshCredentials();
@@ -611,41 +590,37 @@ async function saveCredentials() {
 
 async function refreshOverview() {
   if (!uiState.credentials?.api_key_configured) {
-    overviewOutput.textContent = "Save platform credentials in the local gateway first.";
+    overviewOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
   const [health, metrics] = await Promise.all([proxyRequest("/healthz"), proxyRequest("/v1/metrics/summary")]);
-  overviewOutput.textContent = JSON.stringify({ health, metrics }, null, 2);
+  overviewOutput.innerHTML = renderOverviewSummary(health, metrics);
 }
 
 async function refreshCatalog() {
   if (!uiState.credentials?.api_key_configured) {
-    catalogOutput.textContent = "Save platform credentials in the local gateway first.";
+    catalogOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
   const catalog = await proxyRequest("/v2/hotlines");
-  catalogOutput.textContent = JSON.stringify({ ...catalog, body: { items: applyFilter(catalog.body?.items || []) } }, null, 2);
+  const filteredItems = applyFilter(catalog.body?.items || []);
+  catalogOutput.innerHTML = renderCatalogSummary(catalog, filteredItems);
 }
 
 async function refreshRequests() {
-  if (!sectionVisible("requests")) {
-    requestsList.innerHTML = `<div class="empty">Requests hidden by section filter.</div>`;
-    return;
-  }
   const requests = await proxyRequest(`/v1/admin/requests?${queryWithPagination("requests").toString()}`);
   uiState.requests = requests.body?.items || [];
   uiState.pagination.requests = requests.body?.pagination || uiState.pagination.requests;
   const filteredItems = applyFilter(uiState.requests);
   requestsList.innerHTML = renderAdminRequestCardsMarkup(filteredItems);
   updatePageSummary("requests");
-  requestsOutput.textContent = JSON.stringify({ ...requests, body: { items: filteredItems } }, null, 2);
+  requestsOutput.innerHTML = renderListLoadedSummary("requests", filteredItems, {
+    ...requests,
+    body: { items: filteredItems }
+  });
 }
 
 async function refreshResponders() {
-  if (!sectionVisible("responders")) {
-    respondersList.innerHTML = `<div class="empty">Responders hidden by section filter.</div>`;
-    return;
-  }
   const responders = await proxyRequest(`/v2/admin/responders?${queryWithPagination("responders").toString()}`);
   uiState.responders = responders.body?.items || [];
   uiState.pagination.responders = responders.body?.pagination || uiState.pagination.responders;
@@ -654,10 +629,6 @@ async function refreshResponders() {
 }
 
 async function refreshHotlines() {
-  if (!sectionVisible("hotlines")) {
-    hotlinesList.innerHTML = `<div class="empty">Hotlines hidden by section filter.</div>`;
-    return;
-  }
   const hotlines = await proxyRequest(`/v2/admin/hotlines?${queryWithPagination("hotlines").toString()}`);
   uiState.hotlines = hotlines.body?.items || [];
   uiState.pagination.hotlines = hotlines.body?.pagination || uiState.pagination.hotlines;
@@ -666,31 +637,29 @@ async function refreshHotlines() {
 }
 
 async function refreshAudit() {
-  if (!sectionVisible("audit")) {
-    auditList.innerHTML = `<div class="empty">Audit hidden by section filter.</div>`;
-    return;
-  }
   const audit = await proxyRequest(`/v1/admin/audit-events?${queryWithPagination("audit").toString()}`);
   uiState.audit = audit.body?.items || [];
   uiState.pagination.audit = audit.body?.pagination || uiState.pagination.audit;
   const filteredItems = applyFilter(uiState.audit);
   auditList.innerHTML = renderAuditCardsMarkup(filteredItems);
   updatePageSummary("audit");
-  auditOutput.textContent = JSON.stringify({ ...audit, body: { items: filteredItems } }, null, 2);
+  auditOutput.innerHTML = renderListLoadedSummary("audit events", filteredItems, {
+    ...audit,
+    body: { items: filteredItems }
+  });
 }
 
 async function refreshReviews() {
-  if (!sectionVisible("reviews")) {
-    reviewsList.innerHTML = `<div class="empty">Reviews hidden by section filter.</div>`;
-    return;
-  }
   const reviews = await proxyRequest(`/v1/admin/reviews?${queryWithPagination("reviews").toString()}`);
   uiState.reviews = reviews.body?.items || [];
   uiState.pagination.reviews = reviews.body?.pagination || uiState.pagination.reviews;
   const filteredItems = applyFilter(uiState.reviews);
   reviewsList.innerHTML = renderReviewCardsMarkup(filteredItems);
   updatePageSummary("reviews");
-  reviewsOutput.textContent = JSON.stringify({ ...reviews, body: { items: filteredItems } }, null, 2);
+  reviewsOutput.innerHTML = renderListLoadedSummary("review events", filteredItems, {
+    ...reviews,
+    body: { items: filteredItems }
+  });
 }
 
 function currentBillingTenantId() {
@@ -703,22 +672,17 @@ function renderBillingFromState() {
 }
 
 async function refreshBilling() {
-  if (!sectionVisible("billing")) {
-    billingBalance.innerHTML = `<div class="empty">Billing hidden by section filter.</div>`;
-    billingLedger.innerHTML = `<div class="empty">Billing hidden by section filter.</div>`;
-    return;
-  }
   if (!uiState.credentials?.api_key_configured) {
     billingBalance.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     billingLedger.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
-    billingOutput.textContent = "Save platform credentials in the local gateway first.";
+    billingOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
   const tenantId = currentBillingTenantId();
   if (!tenantId) {
     billingBalance.innerHTML = renderBillingBalanceSummary(null);
     billingLedger.innerHTML = renderBillingLedgerSummary([]);
-    billingOutput.textContent = "Enter a tenant_id to load billing state.";
+    billingOutput.innerHTML = `<div class="empty">Enter a tenant_id to load billing state.</div>`;
     return;
   }
   const encodedTenantId = encodeURIComponent(tenantId);
@@ -734,24 +698,24 @@ async function refreshBilling() {
   }
   uiState.billing.ledger = ledger.status === 200 ? ledger.body?.items || [] : [];
   renderBillingFromState();
-  billingOutput.textContent = JSON.stringify({ balance, ledger }, null, 2);
+  billingOutput.innerHTML = renderListLoadedSummary("billing ledger rows", uiState.billing.ledger, { balance, ledger });
 }
 
 async function createBillingTenant() {
   if (!uiState.credentials?.api_key_configured) {
-    billingOutput.textContent = "Save platform credentials in the local gateway first.";
+    billingOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
   const tenantId = currentBillingTenantId();
   if (!tenantId) {
-    billingOutput.textContent = "Enter a tenant_id before creating a billing tenant.";
+    billingOutput.innerHTML = `<div class="empty">Enter a tenant_id before creating a billing tenant.</div>`;
     return;
   }
   const response = await proxyRequest("/v1/admin/billing/tenants", {
     method: "POST",
     body: { tenant_id: tenantId }
   });
-  billingOutput.textContent = JSON.stringify(response, null, 2);
+  billingOutput.innerHTML = renderGatewayResponseSummary("Create Billing Tenant", response);
   if (response.status < 400) {
     rememberBillingTenant(tenantId);
     await refreshBilling();
@@ -760,17 +724,17 @@ async function createBillingTenant() {
 
 async function recordBillingRecharge() {
   if (!uiState.credentials?.api_key_configured) {
-    billingOutput.textContent = "Save platform credentials in the local gateway first.";
+    billingOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
   const tenantId = currentBillingTenantId();
   const amountCents = Number(billingRechargeAmountInput.value);
   if (!tenantId) {
-    billingOutput.textContent = "Enter a tenant_id before recording a recharge.";
+    billingOutput.innerHTML = `<div class="empty">Enter a tenant_id before recording a recharge.</div>`;
     return;
   }
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
-    billingOutput.textContent = "amount_cents must be a positive integer.";
+    billingOutput.innerHTML = `<div class="empty">amount_cents must be a positive integer.</div>`;
     return;
   }
   const rechargeId = billingRechargeIdInput.value.trim() || `rch_${tenantId}_${Date.now()}`;
@@ -784,7 +748,7 @@ async function recordBillingRecharge() {
       external_reference: billingRechargeReferenceInput.value.trim() || null
     }
   });
-  billingOutput.textContent = JSON.stringify(response, null, 2);
+  billingOutput.innerHTML = renderGatewayResponseSummary("Record Manual Recharge", response);
   if (response.status < 400) {
     billingRechargeIdInput.value = "";
     rememberBillingTenant(tenantId);
@@ -875,6 +839,34 @@ for (const section of paginatedSections) {
   });
 }
 
+sidebarNav.addEventListener("click", (event) => {
+  const groupToggle = event.target.closest("[data-nav-group-toggle]");
+  if (groupToggle) {
+    const groupId = groupToggle.dataset.navGroupToggle;
+    if (navState.expandedGroups.has(groupId)) {
+      navState.expandedGroups.delete(groupId);
+    } else {
+      navState.expandedGroups.add(groupId);
+    }
+    renderNav();
+    return;
+  }
+  const leafButton = event.target.closest("[data-nav-panel]");
+  if (leafButton && !leafButton.classList.contains("is-disabled")) {
+    void activatePanel(leafButton.dataset.navPanel);
+  }
+});
+
+document.querySelector("#goto-session").addEventListener("click", () => {
+  void activatePanel("session", { force: true });
+});
+document.querySelector("#close-detail").addEventListener("click", () => {
+  void activatePanel(navState.previousPanel || DEFAULT_PANEL, { pushHistory: false, force: true });
+});
+document.querySelector("#refresh-active-panel").addEventListener("click", () => {
+  void refreshActivePanel();
+});
+
 document.querySelector("#setup-session").addEventListener("click", setupSession);
 document.querySelector("#login-session").addEventListener("click", loginSession);
 document.querySelector("#logout-session").addEventListener("click", logoutSession);
@@ -895,13 +887,8 @@ globalFilterInput.addEventListener("input", () => {
   for (const pagination of Object.values(uiState.pagination)) {
     pagination.offset = 0;
   }
-  if (uiState.credentials?.api_key_configured) {
-    void refreshAll();
-  }
-});
-sectionFilterInput.addEventListener("change", () => {
-  if (uiState.credentials?.api_key_configured) {
-    void Promise.all([refreshResponders(), refreshHotlines(), refreshRequests(), refreshAudit(), refreshReviews(), refreshBilling()]);
+  if (operatorDataReady()) {
+    void refreshActivePanel();
   }
 });
 for (const input of [platformUrlInput, actionReasonInput, reviewerNotesInput, sessionBootstrapSecretInput]) {
@@ -910,16 +897,18 @@ for (const input of [platformUrlInput, actionReasonInput, reviewerNotesInput, se
 }
 reviewerNotesInput.addEventListener("input", () => {
   if (uiState.detail) {
-    setDetail(uiState.detail);
+    setDetail(uiState.detail, { navigate: false });
   }
 });
 
 loadPrefs();
+renderContentHeader();
+syncPanelVisibility();
 void (async () => {
   await refreshSession();
   await refreshCredentials();
-  if (uiState.credentials?.api_key_configured) {
+  if (operatorDataReady()) {
     uiState.loaded = true;
-    await refreshAll();
   }
+  await activatePanel(navState.activePanel, { pushHistory: false, force: true });
 })();
