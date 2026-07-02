@@ -340,10 +340,10 @@ function createTemplateBundle(templateRef, options = {}) {
     template_ref: templateRef,
     input_schema: options.inputSchema || {
       type: "object",
-      required: ["prompt"],
+      required: ["text"],
       properties: {
-        prompt: { type: "string" },
-        context: { type: "object" }
+        text: { type: "string" },
+        instruction: { type: "string" }
       }
     },
     output_schema: options.outputSchema || {

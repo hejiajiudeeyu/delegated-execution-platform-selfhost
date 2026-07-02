@@ -150,7 +150,7 @@ export function panelMeta(panelId) {
     },
     reviews: {
       title: "Review Queue",
-      description: "Pending responder and hotline submissions awaiting operator action."
+      description: "Pending Responder and Hotline submissions awaiting approve, reject, or enable."
     },
     requests: {
       title: "Requests",

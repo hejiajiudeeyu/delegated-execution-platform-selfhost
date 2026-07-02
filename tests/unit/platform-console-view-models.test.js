@@ -13,7 +13,8 @@ import {
   LEGACY_CONSOLE_SECTIONS,
   renderPaginationSummary,
   renderReviewActionSummary,
-  renderReviewCardsMarkup
+  renderReviewCardsMarkup,
+  renderPendingReviewQueueMarkup
 } from "../../apps/platform-console/src/view-model.js";
 
 describe("platform-console view models", () => {
@@ -28,6 +29,16 @@ describe("platform-console view models", () => {
     expect(
       renderReviewCardsMarkup([{ id: "review_1", target_type: "responder", target_id: "responder_a", review_status: "pending", actor_type: "caller", recorded_at: "now" }])
     ).toContain("pending");
+    expect(
+      renderPendingReviewQueueMarkup([
+        { _entityType: "responders", responder_id: "responder_a", review_status: "pending", status: "disabled", hotline_count: 1 }
+      ])
+    ).toContain("Approve");
+    expect(
+      renderPendingReviewQueueMarkup([
+        { _entityType: "hotlines", hotline_id: "demo.hotline.v1", review_status: "approved", status: "disabled", display_name: "Demo Hotline" }
+      ])
+    ).toContain("Enable");
     expect(renderPaginationSummary({ total: 24, offset: 10, limit: 10 }, "responders")).toBe("responders: 11-20 / 24");
     expect(renderDetailSummary({ responder_id: "responder_a", status: "disabled" })).toContain("responder_a");
     expect(renderHistorySummary([{ review_status: "pending", recorded_at: "now" }], "Review History")).toContain("Review History");

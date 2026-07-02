@@ -263,6 +263,50 @@ export function renderReviewCardsMarkup(items) {
     .join("");
 }
 
+export function renderPendingReviewQueueMarkup(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return `<div class="empty">No pending review submissions. New Responder or Hotline submit-review entries will appear here.</div>`;
+  }
+
+  return items
+    .map((item) => {
+      const entityType = item._entityType === "hotlines" ? "hotlines" : "responders";
+      const id = entityType === "hotlines" ? item.hotline_id : item.responder_id;
+      const reviewStatus = item.review_status || "pending";
+      const status = item.status || "disabled";
+      const needsEnable = reviewStatus === "approved" && status === "disabled";
+      const actions = needsEnable
+        ? `<button data-review-type="${entityType}" data-id="${id}" data-action="enable">Enable</button>`
+        : `
+            <button data-review-type="${entityType}" data-id="${id}" data-action="approve">Approve</button>
+            <button data-review-type="${entityType}" data-id="${id}" data-action="reject" class="ghost">Reject</button>
+          `;
+      const label =
+        entityType === "hotlines"
+          ? item.display_name || id
+          : item.display_name || item.delivery_email || item.contact_email || id;
+      return `
+        <article class="item-card" data-detail-type="reviews" data-detail-id="${entityType}:${id}">
+          <div class="item-head">
+            <div>
+              <strong>${entityType === "hotlines" ? "Hotline" : "Responder"} · ${id}</strong>
+              <p>${label}</p>
+            </div>
+            <span class="status ${reviewStatus}">${needsEnable ? "approved · disabled" : reviewStatus}</span>
+          </div>
+          <p class="meta">
+            ${entityType === "hotlines" ? `Responder: ${item.responder_id || "n/a"}` : `Hotlines: ${item.hotline_count ?? (item.hotlines || []).length}`}
+            ${item.pricing_hint?.fixed_price_cents != null ? ` · ${item.pricing_hint.fixed_price_cents} ${item.pricing_hint.currency || "PTS"}` : ""}
+          </p>
+          <div class="actions">
+            ${actions}
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
 export function renderPaginationSummary(pagination, label) {
   if (!pagination) {
     return `${label}: no data`;

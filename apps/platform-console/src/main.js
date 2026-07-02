@@ -25,7 +25,7 @@ import {
   renderPaginationSummary,
   renderReviewActionSummary,
   renderReviewerGuidance,
-  renderReviewCardsMarkup,
+  renderPendingReviewQueueMarkup,
   renderEntityCardsMarkup
 } from "./view-model.js";
 
@@ -650,14 +650,40 @@ async function refreshAudit() {
 }
 
 async function refreshReviews() {
-  const reviews = await proxyRequest(`/v1/admin/reviews?${queryWithPagination("reviews").toString()}`);
-  uiState.reviews = reviews.body?.items || [];
-  uiState.pagination.reviews = reviews.body?.pagination || uiState.pagination.reviews;
+  const [pendingResponders, pendingHotlines, enableResponders, enableHotlines] = await Promise.all([
+    proxyRequest("/v2/admin/responders?review_status=pending&limit=50"),
+    proxyRequest("/v2/admin/hotlines?review_status=pending&limit=50"),
+    proxyRequest("/v2/admin/responders?review_status=approved&status=disabled&limit=50"),
+    proxyRequest("/v2/admin/hotlines?review_status=approved&status=disabled&limit=50")
+  ]);
+  const merged = [
+    ...(pendingResponders.body?.items || []).map((item) => ({ ...item, _entityType: "responders" })),
+    ...(pendingHotlines.body?.items || []).map((item) => ({ ...item, _entityType: "hotlines" })),
+    ...(enableResponders.body?.items || []).map((item) => ({ ...item, _entityType: "responders" })),
+    ...(enableHotlines.body?.items || []).map((item) => ({ ...item, _entityType: "hotlines" }))
+  ];
+  const seen = new Set();
+  uiState.reviews = merged.filter((item) => {
+    const entityType = item._entityType === "hotlines" ? "hotlines" : "responders";
+    const id = entityType === "hotlines" ? item.hotline_id : item.responder_id;
+    const key = `${entityType}:${id}`;
+    if (!id || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+  uiState.pagination.reviews = {
+    limit: uiState.reviews.length,
+    offset: 0,
+    total: uiState.reviews.length,
+    has_more: false
+  };
   const filteredItems = applyFilter(uiState.reviews);
-  reviewsList.innerHTML = renderReviewCardsMarkup(filteredItems);
+  reviewsList.innerHTML = renderPendingReviewQueueMarkup(filteredItems);
   updatePageSummary("reviews");
-  reviewsOutput.innerHTML = renderListLoadedSummary("review events", filteredItems, {
-    ...reviews,
+  reviewsOutput.innerHTML = renderListLoadedSummary("pending review submissions", filteredItems, {
+    status: 200,
     body: { items: filteredItems }
   });
 }
@@ -816,10 +842,20 @@ auditList.addEventListener("click", (event) => {
   }
 });
 
-reviewsList.addEventListener("click", (event) => {
+reviewsList.addEventListener("click", async (event) => {
   const card = event.target.closest("[data-detail-id]");
-  if (card) {
-    setDetail(uiState.reviews.find((item) => item.id === card.dataset.detailId) || null);
+  if (card && !event.target.closest("button")) {
+    const detailId = card.dataset.detailId || "";
+    setDetail(uiState.reviews.find((item) => {
+      const entityType = item._entityType === "hotlines" ? "hotlines" : "responders";
+      const id = entityType === "hotlines" ? item.hotline_id : item.responder_id;
+      return `${entityType}:${id}` === detailId;
+    }) || null);
+  }
+  const button = event.target.closest("button[data-review-type]");
+  if (button) {
+    await runAction(button.dataset.reviewType, button.dataset.id, button.dataset.action);
+    await refreshReviews();
   }
 });
 
