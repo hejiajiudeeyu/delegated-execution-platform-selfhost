@@ -85,7 +85,7 @@ export function renderKeyValueList(entries, { limit = 12 } = {}) {
   `;
 }
 
-export function renderOverviewSummary(health, metrics) {
+export function renderOverviewSummary(health, metrics, gatewayHealth = null) {
   const healthStatus = proxyStatus(health);
   const healthBody = proxyBody(health);
   const metricsStatus = proxyStatus(metrics);
@@ -96,9 +96,26 @@ export function renderOverviewSummary(health, metrics) {
     ? `${serviceName} is responding normally.`
     : healthBody?.error?.message || "Platform health check failed.";
   const eventTypes = metricsBody?.by_type ? Object.entries(metricsBody.by_type) : [];
+  const gatewayStatus = gatewayHealth ? proxyStatus(gatewayHealth) : null;
+  const gatewayOk = gatewayStatus !== null && gatewayStatus < 400;
 
   return `
     <div class="stack human-summary">
+      ${
+        gatewayHealth
+          ? `
+            <article class="item-card">
+              <div class="item-head">
+                <div>
+                  <strong>Console Gateway</strong>
+                  <p>${gatewayOk ? "platform-console-gateway is responding normally." : escapeHtml(proxyBody(gatewayHealth)?.error?.message || "Console gateway health check failed.")}</p>
+                </div>
+                <span class="status ${gatewayOk ? "healthy" : "disabled"}">${gatewayStatus}</span>
+              </div>
+            </article>
+          `
+          : ""
+      }
       <article class="item-card">
         <div class="item-head">
           <div>
@@ -207,14 +224,14 @@ export function renderGatewayResponseSummary(title, response) {
   const ok = status < 400 && body?.ok !== false;
   const message =
     body?.error?.message ||
-    body?.session?.authenticated === true
+    (body?.session?.authenticated === true
       ? "Operator gateway session is unlocked."
       : body?.session?.setup_required
         ? "Create a local passphrase before unlocking the gateway."
         : body?.session?.locked
           ? "Operator gateway is locked."
           : body?.message ||
-            (ok ? "Request completed successfully." : "Request failed.");
+            (ok ? "Request completed successfully." : "Request failed."));
 
   const session = body?.session;
   const detailRows = [];

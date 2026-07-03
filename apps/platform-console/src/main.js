@@ -16,6 +16,13 @@ import {
 } from "./human-view.js";
 import { renderConsoleShellMarkup } from "./shell-markup.js";
 import {
+  deriveSessionPhase,
+  RECOVERY_CONFIRMATION_PHRASE,
+  renderSessionPanelMarkup,
+  validateRecoveryInput,
+  validateSetupInput
+} from "./session-view.js";
+import {
   renderAdminRequestCardsMarkup,
   renderAuditCardsMarkup,
   renderBillingBalanceSummary,
@@ -87,16 +94,36 @@ async function requestJson(baseUrl, pathname, { method = "GET", body } = {}) {
   if (uiState.sessionToken) {
     headers["X-Platform-Console-Session"] = uiState.sessionToken;
   }
-  const response = await fetch(new URL(pathname, baseUrl), {
-    method,
-    headers: body === undefined ? headers : { ...headers, "content-type": "application/json; charset=utf-8" },
-    body: body === undefined ? undefined : JSON.stringify(body)
-  });
-  const text = await response.text();
-  return {
-    status: response.status,
-    body: text ? JSON.parse(text) : null
-  };
+  try {
+    const response = await fetch(new URL(pathname, baseUrl), {
+      method,
+      headers: body === undefined ? headers : { ...headers, "content-type": "application/json; charset=utf-8" },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    const text = await response.text();
+    let parsed = null;
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = { error: { code: "GATEWAY_BAD_RESPONSE", message: text.slice(0, 200) } };
+      }
+    }
+    return {
+      status: response.status,
+      body: parsed
+    };
+  } catch (error) {
+    return {
+      status: 503,
+      body: {
+        error: {
+          code: "GATEWAY_UNREACHABLE",
+          message: error instanceof Error ? error.message : "gateway request failed"
+        }
+      }
+    };
+  }
 }
 
 function gatewayUrl() {
@@ -134,11 +161,8 @@ const sessionBadge = document.querySelector("#session-badge");
 const contentTitle = document.querySelector("#content-title");
 const contentDescription = document.querySelector("#content-description");
 const lockBanner = document.querySelector("#lock-banner");
-const sessionState = document.querySelector("#session-state");
+const sessionPanelBody = document.querySelector("#session-panel-body");
 const sessionOutput = document.querySelector("#session-output");
-const sessionPassphraseInput = document.querySelector("#session-passphrase");
-const sessionNextPassphraseInput = document.querySelector("#session-next-passphrase");
-const sessionBootstrapSecretInput = document.querySelector("#session-bootstrap-secret");
 const platformUrlInput = document.querySelector("#platform-url");
 const platformKeyInput = document.querySelector("#platform-api-key");
 const credentialState = document.querySelector("#credential-state");
@@ -177,9 +201,24 @@ const pageOutputs = {
   reviews: document.querySelector("#reviews-page")
 };
 
+function sessionFieldValue(id) {
+  const input = sessionPanelBody.querySelector(`#${id}`);
+  return input ? input.value.trim() : "";
+}
+
+function storedBootstrapSecret() {
+  return localStorage.getItem(storageKeys.bootstrapSecret) || "";
+}
+
+function rememberBootstrapSecret() {
+  const value = sessionFieldValue("session-bootstrap-secret");
+  if (value) {
+    localStorage.setItem(storageKeys.bootstrapSecret, value);
+  }
+}
+
 function savePrefs() {
   localStorage.setItem(storageKeys.actionReason, actionReasonInput.value);
-  localStorage.setItem(storageKeys.bootstrapSecret, sessionBootstrapSecretInput.value);
   localStorage.setItem(storageKeys.reviewerNotes, reviewerNotesInput.value);
 }
 
@@ -330,7 +369,6 @@ async function activatePanel(panelId, { pushHistory = true, force = false } = {}
 
 function loadPrefs() {
   actionReasonInput.value = localStorage.getItem(storageKeys.actionReason) || actionReasonInput.value;
-  sessionBootstrapSecretInput.value = localStorage.getItem(storageKeys.bootstrapSecret) || "";
   reviewerNotesInput.value = localStorage.getItem(storageKeys.reviewerNotes) || "";
   uiState.billing.tenantHistory = loadBillingTenantHistory();
   renderBillingTenantOptions();
@@ -368,6 +406,10 @@ function rememberBillingTenant(tenantId) {
 
 function renderBillingTenantOptions() {
   billingTenantOptions.innerHTML = uiState.billing.tenantHistory.map((tenantId) => `<option value="${tenantId}"></option>`).join("");
+}
+
+function loadingMarkup(label) {
+  return `<div class="empty is-loading">Loading ${label}…</div>`;
 }
 
 function applyFilter(items) {
@@ -428,44 +470,15 @@ function queryWithPagination(section) {
 }
 
 function renderSessionState() {
-  const session = uiState.session || {};
-  if (session.setup_required) {
-    sessionState.innerHTML = `
-      <article class="item-card">
-        <div class="item-head">
-          <div>
-            <strong>Create Local Passphrase</strong>
-            <p>Initialize the shared encrypted secret store used by local control surfaces.</p>
-          </div>
-          <span class="status disabled">setup required</span>
-        </div>
-      </article>
-    `;
-  } else if (!session.authenticated) {
-    sessionState.innerHTML = `
-      <article class="item-card">
-        <div class="item-head">
-          <div>
-            <strong>Operator Gateway Locked</strong>
-            <p>Unlock the local gateway before using platform admin actions.</p>
-          </div>
-          <span class="status disabled">locked</span>
-        </div>
-      </article>
-    `;
-  } else {
-    sessionState.innerHTML = `
-      <article class="item-card">
-        <div class="item-head">
-          <div>
-            <strong>Operator Gateway Unlocked</strong>
-            <p>Admin credentials remain server-side in the local gateway only.</p>
-          </div>
-          <span class="status healthy">authenticated</span>
-        </div>
-        <p class="meta">Session expires at: ${session.expires_at || "n/a"}</p>
-      </article>
-    `;
+  const phase = deriveSessionPhase({ session: uiState.session, sessionToken: uiState.sessionToken });
+  sessionPanelBody.innerHTML = renderSessionPanelMarkup({
+    phase,
+    session: uiState.session,
+    adminKeyConfigured: hasAdminCredentialsConfigured()
+  });
+  const bootstrapInput = sessionPanelBody.querySelector("#session-bootstrap-secret");
+  if (bootstrapInput) {
+    bootstrapInput.value = storedBootstrapSecret();
   }
   credentialState.textContent = hasAdminCredentialsConfigured()
     ? "Configured in local encrypted secret store."
@@ -497,9 +510,23 @@ async function refreshCredentials() {
   renderSessionState();
 }
 
+function validationFailure(title, message) {
+  return renderGatewayResponseSummary(title, {
+    status: 400,
+    body: { error: { code: "VALIDATION_FAILED", message } }
+  });
+}
+
 async function setupSession() {
-  const passphrase = sessionNextPassphraseInput.value.trim() || sessionPassphraseInput.value.trim();
-  const bootstrapSecret = sessionBootstrapSecretInput.value.trim();
+  const passphrase = sessionFieldValue("session-new-passphrase");
+  const confirmPassphrase = sessionFieldValue("session-confirm-passphrase");
+  const validation = validateSetupInput({ passphrase, confirmPassphrase });
+  if (!validation.ok) {
+    sessionOutput.innerHTML = validationFailure("Create Passphrase", validation.message);
+    return;
+  }
+  rememberBootstrapSecret();
+  const bootstrapSecret = sessionFieldValue("session-bootstrap-secret");
   const response = await gatewayRequest("/session/setup", {
     method: "POST",
     body: {
@@ -507,11 +534,9 @@ async function setupSession() {
       ...(bootstrapSecret ? { bootstrap_secret: bootstrapSecret } : {})
     }
   });
-  sessionOutput.innerHTML = renderGatewayResponseSummary("Create Local Passphrase", response);
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Create Passphrase", response);
   if (response.status < 400) {
     setSessionToken(response.body?.token || null);
-    sessionPassphraseInput.value = "";
-    sessionNextPassphraseInput.value = "";
     await refreshSession();
     await refreshCredentials();
   }
@@ -520,7 +545,7 @@ async function setupSession() {
 async function loginSession() {
   const response = await gatewayRequest("/session/login", {
     method: "POST",
-    body: { passphrase: sessionPassphraseInput.value.trim() }
+    body: { passphrase: sessionFieldValue("session-passphrase") }
   });
   sessionOutput.innerHTML = renderGatewayResponseSummary("Unlock Operator Gateway", response);
   if (response.status < 400) {
@@ -528,8 +553,6 @@ async function loginSession() {
     if (response.body?.session) {
       uiState.session = response.body.session;
     }
-    sessionPassphraseInput.value = "";
-    sessionNextPassphraseInput.value = "";
     await refreshSession();
     await refreshCredentials();
     syncLockBanner();
@@ -540,6 +563,36 @@ async function loginSession() {
     if (operatorDataReady() && (navState.activePanel === "session" || navState.activePanel === "overview")) {
       await activatePanel(DEFAULT_PANEL, { pushHistory: false, force: true });
     }
+  }
+}
+
+async function recoverSession() {
+  const passphrase = sessionFieldValue("session-recovery-passphrase");
+  const confirmation = sessionFieldValue("session-recovery-confirm");
+  const bootstrapSecret = sessionFieldValue("session-bootstrap-secret");
+  const validation = validateRecoveryInput({ passphrase, confirmation, bootstrapSecret });
+  if (!validation.ok) {
+    sessionOutput.innerHTML = validationFailure("Reset Gateway Store", validation.message);
+    return;
+  }
+  rememberBootstrapSecret();
+  const response = await gatewayRequest("/session/recover", {
+    method: "POST",
+    body: {
+      passphrase,
+      bootstrap_secret: bootstrapSecret,
+      confirm_reset: true,
+      confirmation: RECOVERY_CONFIRMATION_PHRASE
+    }
+  });
+  sessionOutput.innerHTML = renderGatewayResponseSummary("Reset Gateway Store", response);
+  if (response.status < 400) {
+    setSessionToken(response.body?.token || null);
+    uiState.credentials = null;
+    uiState.loaded = false;
+    await refreshSession();
+    await refreshCredentials();
+    await activatePanel("credentials", { pushHistory: false, force: true });
   }
 }
 
@@ -557,14 +610,17 @@ async function logoutSession() {
 }
 
 async function changePassphrase() {
+  const nextPassphrase = sessionFieldValue("session-next-passphrase");
+  if (nextPassphrase.length < 8) {
+    sessionOutput.innerHTML = validationFailure("Change Passphrase", "New passphrase must be at least 8 characters.");
+    return;
+  }
   const response = await gatewayRequest("/session/change-passphrase", {
     method: "POST",
-    body: { next_passphrase: sessionNextPassphraseInput.value.trim() }
+    body: { next_passphrase: nextPassphrase }
   });
   sessionOutput.innerHTML = renderGatewayResponseSummary("Change Passphrase", response);
   if (response.status < 400) {
-    sessionPassphraseInput.value = "";
-    sessionNextPassphraseInput.value = "";
     await refreshSession();
   }
 }
@@ -593,8 +649,13 @@ async function refreshOverview() {
     overviewOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
-  const [health, metrics] = await Promise.all([proxyRequest("/healthz"), proxyRequest("/v1/metrics/summary")]);
-  overviewOutput.innerHTML = renderOverviewSummary(health, metrics);
+  overviewOutput.innerHTML = loadingMarkup("platform health and metrics");
+  const [health, metrics, gatewayHealth] = await Promise.all([
+    proxyRequest("/healthz"),
+    proxyRequest("/v1/metrics/summary"),
+    gatewayRequest("/healthz")
+  ]);
+  overviewOutput.innerHTML = renderOverviewSummary(health, metrics, gatewayHealth);
 }
 
 async function refreshCatalog() {
@@ -602,12 +663,14 @@ async function refreshCatalog() {
     catalogOutput.innerHTML = `<div class="empty">Save platform credentials in the local gateway first.</div>`;
     return;
   }
+  catalogOutput.innerHTML = loadingMarkup("marketplace catalog");
   const catalog = await proxyRequest("/v2/hotlines");
   const filteredItems = applyFilter(catalog.body?.items || []);
   catalogOutput.innerHTML = renderCatalogSummary(catalog, filteredItems);
 }
 
 async function refreshRequests() {
+  requestsList.innerHTML = loadingMarkup("requests");
   const requests = await proxyRequest(`/v1/admin/requests?${queryWithPagination("requests").toString()}`);
   uiState.requests = requests.body?.items || [];
   uiState.pagination.requests = requests.body?.pagination || uiState.pagination.requests;
@@ -621,6 +684,7 @@ async function refreshRequests() {
 }
 
 async function refreshResponders() {
+  respondersList.innerHTML = loadingMarkup("responders");
   const responders = await proxyRequest(`/v2/admin/responders?${queryWithPagination("responders").toString()}`);
   uiState.responders = responders.body?.items || [];
   uiState.pagination.responders = responders.body?.pagination || uiState.pagination.responders;
@@ -629,6 +693,7 @@ async function refreshResponders() {
 }
 
 async function refreshHotlines() {
+  hotlinesList.innerHTML = loadingMarkup("hotlines");
   const hotlines = await proxyRequest(`/v2/admin/hotlines?${queryWithPagination("hotlines").toString()}`);
   uiState.hotlines = hotlines.body?.items || [];
   uiState.pagination.hotlines = hotlines.body?.pagination || uiState.pagination.hotlines;
@@ -637,6 +702,7 @@ async function refreshHotlines() {
 }
 
 async function refreshAudit() {
+  auditList.innerHTML = loadingMarkup("audit events");
   const audit = await proxyRequest(`/v1/admin/audit-events?${queryWithPagination("audit").toString()}`);
   uiState.audit = audit.body?.items || [];
   uiState.pagination.audit = audit.body?.pagination || uiState.pagination.audit;
@@ -650,6 +716,7 @@ async function refreshAudit() {
 }
 
 async function refreshReviews() {
+  reviewsList.innerHTML = loadingMarkup("pending review submissions");
   const [pendingResponders, pendingHotlines, enableResponders, enableHotlines] = await Promise.all([
     proxyRequest("/v2/admin/responders?review_status=pending&limit=50"),
     proxyRequest("/v2/admin/hotlines?review_status=pending&limit=50"),
@@ -903,10 +970,30 @@ document.querySelector("#refresh-active-panel").addEventListener("click", () => 
   void refreshActivePanel();
 });
 
-document.querySelector("#setup-session").addEventListener("click", setupSession);
-document.querySelector("#login-session").addEventListener("click", loginSession);
+sessionPanelBody.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-session-action]");
+  if (!button) {
+    return;
+  }
+  const handlers = {
+    setup: setupSession,
+    login: loginSession,
+    recover: recoverSession,
+    "change-passphrase": changePassphrase,
+    logout: logoutSession,
+    "goto-credentials": () => activatePanel("credentials", { pushHistory: false, force: true }),
+    retry: async () => {
+      await refreshSession();
+      await refreshCredentials();
+    }
+  };
+  const handler = handlers[button.dataset.sessionAction];
+  if (handler) {
+    await handler();
+  }
+});
+
 document.querySelector("#logout-session").addEventListener("click", logoutSession);
-document.querySelector("#change-passphrase").addEventListener("click", changePassphrase);
 document.querySelector("#save-credentials").addEventListener("click", saveCredentials);
 document.querySelector("#refresh-overview").addEventListener("click", refreshAll);
 document.querySelector("#refresh-responders").addEventListener("click", refreshResponders);
@@ -927,7 +1014,7 @@ globalFilterInput.addEventListener("input", () => {
     void refreshActivePanel();
   }
 });
-for (const input of [platformUrlInput, actionReasonInput, reviewerNotesInput, sessionBootstrapSecretInput]) {
+for (const input of [platformUrlInput, actionReasonInput, reviewerNotesInput]) {
   input.addEventListener("change", savePrefs);
   input.addEventListener("blur", savePrefs);
 }

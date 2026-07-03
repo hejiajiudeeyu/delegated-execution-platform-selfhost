@@ -103,6 +103,26 @@ curl -fsS "$BASE/gateway/proxy/v2/admin/hotlines" \
   -H "x-platform-console-session: $TOKEN"
 ```
 
+## Lost Passphrase Recovery
+
+If the console passphrase is lost, the encrypted store can be reset from the browser without SSH:
+
+1. open `${PUBLIC_SITE_ADDRESS%/}/console/`, go to `Settings -> Session & Unlock`
+2. expand `Lost passphrase? Reset the gateway store`
+3. enter the deployment-held `PLATFORM_CONSOLE_BOOTSTRAP_SECRET`, a new passphrase, and type `RESET` to confirm
+
+The reset is destructive: secrets encrypted with the old passphrase — including the saved
+`PLATFORM_ADMIN_API_KEY` — cannot be preserved and must be re-entered under
+`Settings -> Gateway Credentials` afterwards. Equivalent API call:
+
+```bash
+curl -fsS -X POST "$BASE/gateway/session/recover" \
+  -H 'content-type: application/json' \
+  -d "{\"passphrase\":\"new-pass-here\",\"bootstrap_secret\":\"$PLATFORM_CONSOLE_BOOTSTRAP_SECRET\",\"confirm_reset\":true}"
+```
+
+Keep the console passphrase in the deployment handoff so recovery stays an exception, not the normal unlock path.
+
 ## Smoke Validation
 
 Recommended checks:

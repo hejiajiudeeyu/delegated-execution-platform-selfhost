@@ -135,6 +135,10 @@ export function renderConsoleShellMarkup() {
                 <button id="refresh-reviews" class="ghost" type="button">Reload</button>
               </div>
             </div>
+            <p class="meta">
+              Lifecycle: submit-review &rarr; <strong>pending</strong> &rarr; approve &rarr; <strong>approved &middot; disabled</strong> &rarr; enable &rarr; live.
+              A hotline only appears in the public marketplace once it is approved, enabled, and its responder is approved and enabled.
+            </p>
             <label>Reviewer Notes</label>
             <textarea id="reviewer-notes" rows="3" placeholder="What was reviewed, approved/rejected, and any follow-up."></textarea>
             <p id="reviews-page" class="meta">reviews: no data</p>
@@ -151,30 +155,11 @@ export function renderConsoleShellMarkup() {
           <div class="card">
             <div class="section-head">
               <div>
-                <h3>Unlock Operator Gateway</h3>
-                <p class="meta">Initialize or unlock the encrypted local secret store.</p>
+                <h3>Session &amp; Unlock</h3>
+                <p class="meta">Initialize, unlock, or recover the encrypted gateway secret store.</p>
               </div>
             </div>
-            <div id="session-state" class="stack"></div>
-            <div class="grid three">
-              <div>
-                <label for="session-passphrase">Passphrase</label>
-                <input id="session-passphrase" type="password" placeholder="At least 8 characters" />
-              </div>
-              <div>
-                <label for="session-next-passphrase">New Passphrase</label>
-                <input id="session-next-passphrase" type="password" placeholder="For setup or rotation" />
-              </div>
-              <div>
-                <label for="session-bootstrap-secret">Bootstrap Secret</label>
-                <input id="session-bootstrap-secret" type="password" placeholder="Required when gateway is public" />
-              </div>
-            </div>
-            <div class="actions inline">
-              <button id="setup-session" type="button">Create Local Passphrase</button>
-              <button id="login-session" class="ghost" type="button">Unlock</button>
-              <button id="change-passphrase" class="ghost" type="button">Change Passphrase</button>
-            </div>
+            <div id="session-panel-body"></div>
             <div id="session-output" class="stack human-panel">Operator session not initialized yet.</div>
           </div>
         </section>
@@ -188,6 +173,10 @@ export function renderConsoleShellMarkup() {
               </div>
               <button id="save-credentials" type="button">Save Credential</button>
             </div>
+            <p class="meta">
+              The Operator API key is the PLATFORM_ADMIN_API_KEY issued when the platform stack was deployed.
+              It is saved into the encrypted gateway store and proxied server-side; it is never displayed again after saving.
+            </p>
             <div class="grid three">
               <div>
                 <label for="platform-url">Platform API URL</label>

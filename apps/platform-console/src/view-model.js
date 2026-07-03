@@ -58,6 +58,7 @@ export function renderBillingConsoleSection() {
             <label>tenant_id</label>
             <input id="billing-tenant-id" list="billing-tenant-options" value="tenant_default" />
             <datalist id="billing-tenant-options"></datalist>
+            <p class="meta">For Caller billing, tenant_id must equal the Caller's user_id (the id printed by delexec-ops auth register).</p>
             <div class="actions inline">
               <button id="select-billing-tenant" class="ghost">Load Tenant</button>
               <button id="create-billing-tenant" class="ghost">Create Tenant</button>

@@ -12,20 +12,20 @@ export const CONSOLE_NAV = [
     requiresData: true
   },
   {
+    id: "operations",
+    label: "Operations",
+    children: [
+      { id: "reviews", label: "Review Queue", panel: "reviews", section: "reviews", requiresData: true },
+      { id: "requests", label: "Requests", panel: "requests", section: "requests", requiresData: true }
+    ]
+  },
+  {
     id: "catalog",
     label: "Catalog",
     children: [
       { id: "responders", label: "Responders", panel: "responders", section: "responders", requiresData: true },
       { id: "hotlines", label: "Hotlines", panel: "hotlines", section: "hotlines", requiresData: true },
       { id: "marketplace", label: "Marketplace", panel: "catalog", section: null, requiresData: true }
-    ]
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    children: [
-      { id: "reviews", label: "Review Queue", panel: "reviews", section: "reviews", requiresData: true },
-      { id: "requests", label: "Requests", panel: "requests", section: "requests", requiresData: true }
     ]
   },
   {
@@ -54,7 +54,7 @@ export const CONSOLE_NAV = [
 
 export const DEFAULT_PANEL = "overview";
 
-export const DEFAULT_EXPANDED_GROUPS = ["catalog", "operations", "settings"];
+export const DEFAULT_EXPANDED_GROUPS = ["operations", "catalog", "settings"];
 
 /** @returns {ConsoleNavLeaf[]} */
 export function flattenNavLeaves(items = CONSOLE_NAV) {
@@ -166,7 +166,7 @@ export function panelMeta(panelId) {
     },
     session: {
       title: "Session & Unlock",
-      description: "Initialize or unlock the local operator gateway passphrase session."
+      description: "Initialize, unlock, or recover the operator gateway passphrase session."
     },
     credentials: {
       title: "Gateway Credentials",
