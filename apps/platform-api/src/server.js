@@ -156,6 +156,7 @@ function sendBillingError(res, error) {
     });
     return;
   }
+  console.error("[platform-api] unhandled billing error:", error);
   sendError(res, 500, "ERR_BILLING_INTERNAL", "billing request failed", {
     retryable: true
   });
@@ -4363,6 +4364,7 @@ export function createPlatformServer({
         return;
       }
 
+      console.error(`[${serviceName}] unhandled route error ${req.method} ${req.url}:`, error);
       sendError(res, 500, "PLATFORM_API_INTERNAL_ERROR", error instanceof Error ? error.message : "unknown_error", { retryable: true });
     }
   });

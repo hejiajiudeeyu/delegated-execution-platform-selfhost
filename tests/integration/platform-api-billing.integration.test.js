@@ -323,7 +323,7 @@ describe("platform-api billing enforcement integration", () => {
           pricing_hint: pricingHint
         }
       });
-      expect(submitted.status).toBe(201);
+      expect(submitted.status, `hotline submit failed: ${JSON.stringify(submitted.body)}`).toBe(201);
 
       const adminHeaders = { Authorization: `Bearer ${state.adminApiKey}` };
       const approveHotline = await jsonRequest(baseUrl, "/v2/admin/hotlines/paid.echo.e2e.v1/approve", {
