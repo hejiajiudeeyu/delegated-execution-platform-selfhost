@@ -8,6 +8,7 @@ export default mergeConfig(
       include: ["tests/e2e/**/*.test.js"],
       setupFiles: ["tests/e2e/setup.js"],
       fileParallelism: false,
+      hookTimeout: 30000,
       sequence: {
         shuffle: false
       }

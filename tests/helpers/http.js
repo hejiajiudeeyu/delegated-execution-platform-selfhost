@@ -49,7 +49,7 @@ export async function waitFor(fn, { timeoutMs = 4000, intervalMs = 50 } = {}) {
     try {
       return await fn();
     } catch (error) {
-      if (Date.now() - started >= timeoutMs) {
+      if (error?.fatal || Date.now() - started >= timeoutMs) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));

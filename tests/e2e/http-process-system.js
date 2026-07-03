@@ -3,13 +3,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { resolveHttpServiceLaunch, stopNodeHttpService, startNodeHttpService } from "../helpers/process.js";
+import {
+  HERMETIC_STORE_ENV,
+  resolveClientServiceLaunch,
+  resolveHttpServiceLaunch,
+  startNodeHttpService,
+  stopNodeHttpService
+} from "../helpers/process.js";
 
 const ROOT_DIR = process.cwd();
 const PLATFORM_ENTRY = path.join(ROOT_DIR, "apps/platform-api/src/server.js");
 const RELAY_ENTRY = path.join(ROOT_DIR, "apps/transport-relay/src/server.js");
-const CALLER_ENTRY = path.join(ROOT_DIR, "apps/caller-controller/src/server.js");
-const RESPONDER_ENTRY = path.join(ROOT_DIR, "apps/responder-controller/src/server.js");
 
 function randomPort(base) {
   return base + Math.floor(Math.random() * 500);
@@ -36,8 +40,7 @@ export async function startHttpProcessSystem() {
 
   const sharedEnv = {
     DELEXEC_HOME: runtimeDir,
-    DATABASE_URL: "",
-    SQLITE_DATABASE_PATH: "",
+    ...HERMETIC_STORE_ENV,
     ENABLE_BOOTSTRAP_RESPONDERS: "true",
     PLATFORM_ADMIN_API_KEY: `sk_admin_${crypto.randomBytes(12).toString("hex")}`
   };
@@ -77,13 +80,11 @@ export async function startHttpProcessSystem() {
     }
   });
 
+  const callerService = resolveClientServiceLaunch({ serviceName: "caller", appName: "caller-controller" });
   const caller = await startNodeHttpService({
     name: "caller",
-    ...resolveHttpServiceLaunch({
-      serviceName: "caller",
-      entryPath: CALLER_ENTRY
-    }),
-    entryPath: CALLER_ENTRY,
+    ...callerService.launch,
+    entryPath: callerService.entryPath,
     port: callerPort,
     env: {
       ...sharedEnv,
@@ -99,13 +100,11 @@ export async function startHttpProcessSystem() {
     }
   });
 
+  const responderService = resolveClientServiceLaunch({ serviceName: "responder", appName: "responder-controller" });
   const responder = await startNodeHttpService({
     name: "responder",
-    ...resolveHttpServiceLaunch({
-      serviceName: "responder",
-      entryPath: RESPONDER_ENTRY
-    }),
-    entryPath: RESPONDER_ENTRY,
+    ...responderService.launch,
+    entryPath: responderService.entryPath,
     port: responderPort,
     env: {
       ...sharedEnv,

@@ -7,7 +7,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { runCase } from "../helpers/case-runner.js";
 import { jsonRequest, waitFor } from "../helpers/http.js";
-import { resolveHttpServiceLaunch, startNodeHttpService, stopNodeHttpService } from "../helpers/process.js";
+import {
+  HERMETIC_STORE_ENV,
+  resolveClientServiceLaunch,
+  resolveHttpServiceLaunch,
+  startNodeHttpService,
+  stopNodeHttpService
+} from "../helpers/process.js";
 
 describe("e2e: ops supervisor path", () => {
   let opsHome;
@@ -38,6 +44,7 @@ describe("e2e: ops supervisor path", () => {
       port: platformPort,
       env: {
         DELEXEC_HOME: opsHome,
+        ...HERMETIC_STORE_ENV,
         SERVICE_NAME: "platform-api-ops-e2e",
         PLATFORM_ADMIN_API_KEY: platformAdminApiKey,
         TOKEN_SECRET: `ops-e2e-token-secret-${crypto.randomBytes(8).toString("hex")}`
@@ -46,17 +53,20 @@ describe("e2e: ops supervisor path", () => {
     platformUrl = platform.baseUrl;
     process.env.PLATFORM_API_BASE_URL = platformUrl;
 
+    const opsService = resolveClientServiceLaunch({
+      serviceName: "ops_supervisor",
+      appName: "ops",
+      entryRelPath: "src/cli.js",
+      defaultArgs: ["start"]
+    });
     supervisor = await startNodeHttpService({
       name: "ops-supervisor-e2e",
-      ...resolveHttpServiceLaunch({
-        serviceName: "ops_supervisor",
-        entryPath: path.join(process.cwd(), "apps/ops/src/cli.js"),
-        defaultArgs: ["start"]
-      }),
-      entryPath: path.join(process.cwd(), "apps/ops/src/cli.js"),
+      ...opsService.launch,
+      entryPath: opsService.entryPath,
       port: supervisorPort,
       env: {
         DELEXEC_HOME: opsHome,
+        ...HERMETIC_STORE_ENV,
         PLATFORM_API_BASE_URL: platformUrl,
         OPS_PORT_SUPERVISOR: process.env.OPS_PORT_SUPERVISOR,
         OPS_PORT_RELAY: process.env.OPS_PORT_RELAY,
@@ -65,6 +75,16 @@ describe("e2e: ops supervisor path", () => {
       }
     });
     supervisorUrl = supervisor.baseUrl;
+
+    // Current ops supervisor defaults to local-only publishing; platform
+    // features must be enabled before hotline reviews can be submitted.
+    const platformSettings = await jsonRequest(supervisorUrl, "/platform/settings", {
+      method: "PUT",
+      body: { enabled: true, base_url: platformUrl }
+    });
+    if (platformSettings.status !== 200) {
+      throw new Error(`platform_settings_update_failed:${JSON.stringify(platformSettings.body)}`);
+    }
   }, 30000);
 
   afterAll(async () => {
@@ -89,7 +109,7 @@ describe("e2e: ops supervisor path", () => {
           method: "POST",
           body: { contact_email: "ops-e2e@test.local" }
         });
-        expect(caller.status).toBe(201);
+        expect(caller.status, JSON.stringify(caller.body)).toBe(201);
 
         const addHotline = await jsonRequest(supervisorUrl, "/responder/hotlines", {
           method: "POST",
@@ -105,19 +125,19 @@ describe("e2e: ops supervisor path", () => {
             }
           }
         });
-        expect(addHotline.status).toBe(201);
+        expect(addHotline.status, JSON.stringify(addHotline.body)).toBe(201);
 
         const review = await jsonRequest(supervisorUrl, "/responder/submit-review", {
           method: "POST",
           body: { responder_id: "responder_ops_e2e", display_name: "Ops E2E Responder" }
         });
-        expect(review.status).toBe(201);
+        expect(review.status, JSON.stringify(review.body)).toBe(201);
 
         const enable = await jsonRequest(supervisorUrl, "/responder/enable", {
           method: "POST",
           body: { responder_id: "responder_ops_e2e", display_name: "Ops E2E Responder" }
         });
-        expect(enable.status).toBe(200);
+        expect(enable.status, JSON.stringify(enable.body)).toBe(200);
 
         const adminHeader = { Authorization: `Bearer ${platformAdminApiKey}` };
         const approveResponder = await jsonRequest(platformUrl, "/v2/admin/responders/responder_ops_e2e/approve", {
@@ -125,14 +145,14 @@ describe("e2e: ops supervisor path", () => {
           headers: adminHeader,
           body: { reason: "e2e approve responder" }
         });
-        expect(approveResponder.status).toBe(200);
+        expect(approveResponder.status, JSON.stringify(approveResponder.body)).toBe(200);
 
         const approveHotline = await jsonRequest(platformUrl, "/v2/admin/hotlines/ops.process.echo.v1/approve", {
           method: "POST",
           headers: adminHeader,
           body: { reason: "e2e approve hotline" }
         });
-        expect(approveHotline.status).toBe(200);
+        expect(approveHotline.status, JSON.stringify(approveHotline.body)).toBe(200);
 
         const selected = await waitFor(async () => {
           const catalog = await jsonRequest(supervisorUrl, "/catalog/hotlines?capability=text.classify");
@@ -161,7 +181,7 @@ describe("e2e: ops supervisor path", () => {
             }
           }
         });
-        expect(started.status).toBe(201);
+        expect(started.status, JSON.stringify(started.body)).toBe(201);
 
         const requestId = started.body.request_id;
         const final = await waitFor(async () => {
@@ -174,7 +194,7 @@ describe("e2e: ops supervisor path", () => {
         expect(["SUCCEEDED", "UNVERIFIED", "FAILED"]).toContain(final.body.status);
 
         const result = await jsonRequest(supervisorUrl, `/requests/${requestId}/result`);
-        expect(result.status).toBe(200);
+        expect(result.status, JSON.stringify(result.body)).toBe(200);
         expect(result.body.available).toBe(true);
         expect(result.body.result_package.output.summary).toBe("ops supervisor ok");
       }
@@ -192,26 +212,26 @@ describe("e2e: ops supervisor path", () => {
           method: "POST",
           body: { contact_email: "ops-example-e2e@test.local" }
         });
-        expect(caller.status).toBe(201);
+        expect(caller.status, JSON.stringify(caller.body)).toBe(201);
 
         const addExample = await jsonRequest(supervisorUrl, "/responder/hotlines/example", {
           method: "POST",
           body: {}
         });
-        expect(addExample.status).toBe(201);
-        expect(addExample.body.hotline_id).toBe("local.summary.v1");
+        expect(addExample.status, JSON.stringify(addExample.body)).toBe(201);
+        expect(addExample.body.hotline_id).toBe("local.delegated-execution.workspace-summary.v1");
 
         const review = await jsonRequest(supervisorUrl, "/responder/submit-review", {
           method: "POST",
           body: { responder_id: responderId, display_name: "Ops Example Responder" }
         });
-        expect(review.status).toBe(201);
+        expect(review.status, JSON.stringify(review.body)).toBe(201);
 
         const enable = await jsonRequest(supervisorUrl, "/responder/enable", {
           method: "POST",
           body: { responder_id: responderId, display_name: "Ops Example Responder" }
         });
-        expect(enable.status).toBe(200);
+        expect(enable.status, JSON.stringify(enable.body)).toBe(200);
 
         const adminHeader = { Authorization: `Bearer ${platformAdminApiKey}` };
         const approveResponder = await jsonRequest(platformUrl, `/v2/admin/responders/${responderId}/approve`, {
@@ -219,18 +239,18 @@ describe("e2e: ops supervisor path", () => {
           headers: adminHeader,
           body: { reason: "e2e approve example responder" }
         });
-        expect(approveResponder.status).toBe(200);
+        expect(approveResponder.status, JSON.stringify(approveResponder.body)).toBe(200);
 
-        const approveHotline = await jsonRequest(platformUrl, "/v2/admin/hotlines/local.summary.v1/approve", {
+        const approveHotline = await jsonRequest(platformUrl, "/v2/admin/hotlines/local.delegated-execution.workspace-summary.v1/approve", {
           method: "POST",
           headers: adminHeader,
           body: { reason: "e2e approve example hotline" }
         });
-        expect(approveHotline.status).toBe(200);
+        expect(approveHotline.status, JSON.stringify(approveHotline.body)).toBe(200);
 
         await waitFor(async () => {
-          const catalog = await jsonRequest(supervisorUrl, "/catalog/hotlines?hotline_id=local.summary.v1");
-          const item = catalog.body?.items?.find((entry) => entry.hotline_id === "local.summary.v1");
+          const catalog = await jsonRequest(supervisorUrl, "/catalog/hotlines?hotline_id=local.delegated-execution.workspace-summary.v1");
+          const item = catalog.body?.items?.find((entry) => entry.hotline_id === "local.delegated-execution.workspace-summary.v1");
           if (!item) {
             throw new Error("catalog_not_ready");
           }
@@ -243,7 +263,7 @@ describe("e2e: ops supervisor path", () => {
             text: "Summarize this local demo request."
           }
         });
-        expect(started.status).toBe(201);
+        expect(started.status, JSON.stringify(started.body)).toBe(201);
 
         const requestId = started.body.request_id;
         const final = await waitFor(async () => {
@@ -256,8 +276,10 @@ describe("e2e: ops supervisor path", () => {
         expect(final.body.status).toBe("SUCCEEDED");
 
         const result = await jsonRequest(supervisorUrl, `/requests/${requestId}/result`);
-        expect(result.status).toBe(200);
-        expect(result.body.result_package.output.summary).toBe("Summarize this local demo request.");
+        expect(result.status, JSON.stringify(result.body)).toBe(200);
+        expect(result.body.result_package.output.summary).toContain(
+          "Local delegated-execution workspace is ready for a first trial call."
+        );
       }
     });
   });
