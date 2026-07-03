@@ -15,7 +15,7 @@ import {
   unlockOpsSecrets,
   writeOpsSecrets
 } from "./config.js";
-import { initializeSecretStore, rotateSecretStorePassphrase } from "@delexec/runtime-utils";
+import { initializeSecretStore, replaceSecretStore, rotateSecretStorePassphrase } from "@delexec/runtime-utils";
 
 const SESSION_HEADER = "x-platform-console-session";
 const BOOTSTRAP_SECRET_HEADER = "x-platform-console-bootstrap-secret";
@@ -182,6 +182,23 @@ function requireBootstrapSetupAccess(req, res, body = {}) {
   return false;
 }
 
+function requireRecoveryConfirmation(res, body = {}) {
+  const confirmed =
+    body.confirm_reset === true ||
+    normalizedString(body.confirmation) === "RESET" ||
+    normalizedString(body.confirmation) === "RESET_GATEWAY_SECRET_STORE";
+  if (confirmed) {
+    return true;
+  }
+  sendError(
+    res,
+    400,
+    "AUTH_RESET_CONFIRMATION_REQUIRED",
+    "gateway recovery requires confirm_reset=true or confirmation=RESET"
+  );
+  return false;
+}
+
 function contentTypeFor(filePath) {
   return STATIC_MIME_TYPES[path.extname(filePath).toLowerCase()] || "application/octet-stream";
 }
@@ -233,6 +250,17 @@ function buildFlattenedSecrets(state, runtime) {
     [OPS_SECRET_KEYS.transport_gmail_client_secret]: secrets.transport.gmail.client_secret,
     [OPS_SECRET_KEYS.transport_gmail_refresh_token]: secrets.transport.gmail.refresh_token,
     [OPS_SECRET_KEYS.platform_admin_api_key]: secrets.platform_admin_api_key
+  };
+}
+
+function emptyFlattenedSecrets() {
+  return {
+    [OPS_SECRET_KEYS.caller_api_key]: null,
+    [OPS_SECRET_KEYS.responder_platform_api_key]: null,
+    [OPS_SECRET_KEYS.transport_emailengine_access_token]: null,
+    [OPS_SECRET_KEYS.transport_gmail_client_secret]: null,
+    [OPS_SECRET_KEYS.transport_gmail_refresh_token]: null,
+    [OPS_SECRET_KEYS.platform_admin_api_key]: null
   };
 }
 
@@ -413,6 +441,49 @@ export function createPlatformConsoleGatewayServer() {
           sendJson(res, 200, { ok: true, token: session.token, expires_at: session.expires_at, session: authState(state, runtime) });
         } catch (error) {
           sendError(res, 401, "AUTH_INVALID_PASSPHRASE", error instanceof Error ? error.message : "secret_unlock_failed");
+        }
+        return;
+      }
+      if (method === "POST" && pathname === "/session/recover") {
+        const body = await parseJsonBody(req);
+        if (!requireBootstrapSetupAccess(req, res, body)) {
+          return;
+        }
+        if (!requireRecoveryConfirmation(res, body)) {
+          return;
+        }
+        const passphrase = normalizedString(body.passphrase);
+        if (!passphrase || passphrase.length < 8) {
+          sendError(res, 400, "AUTH_INVALID_PASSPHRASE", "passphrase must be at least 8 characters");
+          return;
+        }
+        if (!hasEncryptedSecretStore()) {
+          sendError(res, 409, "AUTH_SECRET_STORE_MISSING", "encrypted secret store is not initialized yet");
+          return;
+        }
+        try {
+          replaceSecretStore(state.secretsFile, passphrase, emptyFlattenedSecrets());
+          runtime.sessions.clear();
+          runtime.unlockedSecrets = unlockOpsSecrets(passphrase);
+          runtime.passphrase = passphrase;
+          scrubLegacySecrets(state);
+          state.env = saveOpsState(state);
+          const session = createSession(runtime, passphrase, runtime.unlockedSecrets);
+          sendJson(res, 200, {
+            ok: true,
+            recovered: true,
+            token: session.token,
+            expires_at: session.expires_at,
+            session: authState(state, runtime)
+          });
+        } catch (error) {
+          sendError(
+            res,
+            500,
+            "AUTH_SECRET_STORE_RECOVERY_FAILED",
+            error instanceof Error ? error.message : "secret_store_recovery_failed",
+            { retryable: true }
+          );
         }
         return;
       }
