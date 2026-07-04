@@ -7,6 +7,7 @@ import {
   panelMeta,
   renderSidebarMarkup
 } from "./nav-model.js";
+import { gatewayApiUrl, resolveGatewayBase } from "./gateway-url.js";
 import {
   renderCatalogSummary,
   renderDetailPanel,
@@ -95,7 +96,7 @@ async function requestJson(baseUrl, pathname, { method = "GET", body } = {}) {
     headers["X-Platform-Console-Session"] = uiState.sessionToken;
   }
   try {
-    const response = await fetch(new URL(pathname, baseUrl), {
+    const response = await fetch(gatewayApiUrl(baseUrl, pathname), {
       method,
       headers: body === undefined ? headers : { ...headers, "content-type": "application/json; charset=utf-8" },
       body: body === undefined ? undefined : JSON.stringify(body)
@@ -127,13 +128,7 @@ async function requestJson(baseUrl, pathname, { method = "GET", body } = {}) {
 }
 
 function gatewayUrl() {
-  if (window.location.port === "8085") {
-    return window.location.origin;
-  }
-  if (window.location.pathname.startsWith("/console")) {
-    return `${window.location.origin}/gateway`;
-  }
-  return DEFAULT_GATEWAY_URL;
+  return resolveGatewayBase(window.location, DEFAULT_GATEWAY_URL);
 }
 
 async function gatewayRequest(pathname, options = {}) {
