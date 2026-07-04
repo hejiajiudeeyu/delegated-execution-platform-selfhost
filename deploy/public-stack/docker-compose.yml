@@ -3,6 +3,7 @@ name: public-stack
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-croc}
       POSTGRES_USER: ${POSTGRES_USER:-croc}
@@ -19,6 +20,7 @@ services:
 
   relay:
     image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-relay:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     environment:
       PORT: ${RELAY_PORT:-8090}
       SERVICE_NAME: transport-relay
@@ -28,6 +30,7 @@ services:
 
   platform-api:
     image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-platform:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     environment:
       PORT: ${PLATFORM_PORT:-8080}
       SERVICE_NAME: platform-api
@@ -53,6 +56,7 @@ services:
 
   platform-console-gateway:
     image: ${IMAGE_REGISTRY:-ghcr.io/hejiajiudeeyu}/rsp-gateway:${IMAGE_TAG:-latest}
+    restart: unless-stopped
     environment:
       PORT: ${GATEWAY_PORT:-8085}
       HOST: 0.0.0.0
@@ -68,6 +72,7 @@ services:
 
   edge:
     image: caddy:2-alpine
+    restart: unless-stopped
     environment:
       PUBLIC_SITE_ADDRESS: ${PUBLIC_SITE_ADDRESS:-http://localhost}
     ports:
