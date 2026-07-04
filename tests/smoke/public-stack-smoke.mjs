@@ -138,7 +138,7 @@ function buildLocalReleaseImages() {
       { stdio: "pipe" }
     );
     if (result.status !== 0) {
-      throw new Error(`local_image_build_failed:${build.name}`);
+      throw new Error(`local_image_build_failed:${build.name}:${summarizeOutput(result).slice(-2000)}`);
     }
   }
 }
@@ -235,15 +235,19 @@ async function runScenario(baseUrl) {
     throw new Error("console_static_wrong_entry: absolute dev entry leaks outside /console/");
   }
   if (consoleHtml.includes('id="root"')) {
-    throw new Error("console_static_wrong_mount: expected #app mount for bundled legacy console");
+    throw new Error("console_static_wrong_mount: expected #app mount for the console SPA");
   }
-  const mainJsResponse = await fetch(`${baseUrl}/console/src/main.js`);
-  if (!mainJsResponse.ok) {
-    throw new Error(`console_static_asset_failed: ${mainJsResponse.status}`);
+  const assetMatch = consoleHtml.match(/src="\.\/(assets\/index-[^"]+\.js)"/);
+  if (!assetMatch) {
+    throw new Error("console_static_wrong_entry: fingerprinted bundle reference missing");
   }
-  const mainJsType = mainJsResponse.headers.get("content-type") || "";
-  if (!mainJsType.includes("javascript")) {
-    throw new Error(`console_static_asset_mime: ${mainJsType || "missing"}`);
+  const bundleResponse = await fetch(`${baseUrl}/console/${assetMatch[1]}`);
+  if (!bundleResponse.ok) {
+    throw new Error(`console_static_asset_failed: ${bundleResponse.status}`);
+  }
+  const bundleType = bundleResponse.headers.get("content-type") || "";
+  if (!bundleType.includes("javascript")) {
+    throw new Error(`console_static_asset_mime: ${bundleType || "missing"}`);
   }
 
   const sessionSetup = await jsonRequest(baseUrl, "/gateway/session/setup", {

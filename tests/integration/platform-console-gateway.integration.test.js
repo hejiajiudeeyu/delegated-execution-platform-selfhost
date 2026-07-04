@@ -1,15 +1,27 @@
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createPlatformServer, createPlatformState } from "@delexec/platform-api";
 import { createPlatformConsoleGatewayServer } from "../../apps/platform-console-gateway/src/server.js";
 import { closeServer, jsonRequest, listenServer } from "../helpers/http.js";
 
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+const consoleDistIndex = path.join(repoRoot, "apps/platform-console/dist/index.html");
+
 describe("platform console gateway integration", () => {
   const cleanupDirs = [];
+
+  // the gateway serves the built SPA; a fresh checkout (CI) has no dist yet
+  beforeAll(() => {
+    if (!fs.existsSync(consoleDistIndex)) {
+      execSync("npm run build --workspace @delexec/platform-console", { cwd: repoRoot, stdio: "inherit" });
+    }
+  }, 120_000);
 
   afterEach(() => {
     while (cleanupDirs.length > 0) {
