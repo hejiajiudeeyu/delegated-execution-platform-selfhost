@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { gatewayApiUrl, resolveGatewayBase } from "../../apps/platform-console/src/gateway-url.js";
+import { gatewayApiUrl, resolveGatewayBase } from "../../apps/platform-console/src/lib/gateway-url";
 
 function loc(origin, pathname, port = "") {
   return { origin, pathname, port };

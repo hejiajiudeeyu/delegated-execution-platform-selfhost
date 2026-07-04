@@ -44,12 +44,15 @@ describe("platform console gateway integration", () => {
       const consoleHtml = await consoleResponse.text();
       expect(consoleHtml).toContain("Platform Console");
       expect(consoleHtml).toContain('id="app"');
-      expect(consoleHtml).toContain('src="./src/main.js"');
-      expect(consoleHtml).not.toContain("/src/main.tsx");
+      // built SPA: index.html references a content-fingerprinted bundle
+      const assetMatch = consoleHtml.match(/src="\.\/(assets\/index-[^"]+\.js)"/);
+      expect(assetMatch).toBeTruthy();
+      expect(consoleResponse.headers.get("cache-control")).toContain("no-cache");
 
-      const mainJsResponse = await fetch(`${gatewayUrl}/src/main.js`);
-      expect(mainJsResponse.status).toBe(200);
-      expect(mainJsResponse.headers.get("content-type")).toContain("javascript");
+      const bundleResponse = await fetch(`${gatewayUrl}/${assetMatch[1]}`);
+      expect(bundleResponse.status).toBe(200);
+      expect(bundleResponse.headers.get("content-type")).toContain("javascript");
+      expect(bundleResponse.headers.get("cache-control")).toContain("immutable");
 
       const sessionBefore = await jsonRequest(gatewayUrl, "/session");
       expect(sessionBefore.status).toBe(200);

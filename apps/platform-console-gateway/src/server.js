@@ -23,7 +23,8 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PLATFORM_CONSOLE_ROOT = path.resolve(__dirname, "../../platform-console");
-const STATIC_ROOT = path.resolve(PLATFORM_CONSOLE_ROOT);
+// the console is a built SPA: serve the vite dist output (fingerprinted assets)
+const STATIC_ROOT = path.resolve(PLATFORM_CONSOLE_ROOT, "dist");
 const STATIC_MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -207,7 +208,7 @@ function resolveStaticPath(pathname) {
   if (pathname === "/" || pathname === "/index.html") {
     return path.join(STATIC_ROOT, "index.html");
   }
-  if (pathname.startsWith("/src/")) {
+  if (pathname.startsWith("/assets/")) {
     const resolved = path.resolve(STATIC_ROOT, `.${pathname}`);
     if (resolved.startsWith(STATIC_ROOT)) {
       return resolved;
@@ -228,7 +229,8 @@ async function serveStaticConsole(req, res, pathname) {
     const contents = await fs.readFile(filePath);
     res.writeHead(200, {
       "content-type": contentTypeFor(filePath),
-      "cache-control": pathname === "/" || pathname === "/index.html" ? "no-cache" : "public, max-age=300"
+      // built assets are content-fingerprinted; index.html must always revalidate
+      "cache-control": pathname.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache"
     });
     if ((req.method || "GET") === "HEAD") {
       res.end();

@@ -1,334 +1,199 @@
-import { useEffect, useMemo, useState } from "react"
-import { toast } from "sonner"
-import { AlertTriangle, CreditCard, Plus, RefreshCw, Search } from "lucide-react"
-import { requestJson } from "@/lib/api"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { cn } from "@/components/ui/utils"
+import { useCallback, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ActionResult, BusyButton, CopyChip, DataState, TechDetails, useAction } from "@/components/shared";
+import { admin, type ApiResult } from "@/lib/api";
+import { toast } from "sonner";
 
-interface BillingWindow {
-  window_kind: string
-  window_started_at?: string
-  max_amount_cents?: number | null
-  used_as_caller_cents: number
-  earned_as_responder_cents: number
-  hard_block_on_exceed: boolean
+interface LedgerRow {
+  ledger_id?: string;
+  kind?: string;
+  amount_cents?: number;
+  new_balance_cents?: number;
+  request_id?: string | null;
+  recorded_at?: string;
+  [k: string]: unknown;
 }
 
-interface BillingBalance {
-  tenant_id: string
-  credit_balance_cents: number
-  pending_credit_cents: number
-  currency: string
-  credit_mode?: string
-  rate_limit_per_second?: number
-  windows?: BillingWindow[]
-}
+const KIND_LABEL: Record<string, { label: string; cls: string }> = {
+  recharge: { label: "充值", cls: "bg-emerald-50 text-emerald-700" },
+  hold: { label: "冻结", cls: "bg-amber-50 text-amber-800" },
+  settle: { label: "结算", cls: "bg-violet-50 text-violet-700" },
+  debit: { label: "结算", cls: "bg-violet-50 text-violet-700" },
+  refund: { label: "退回", cls: "bg-sky-50 text-sky-700" }
+};
 
-interface BillingLedgerRow {
-  ledger_id: string
-  tenant_id: string
-  kind: string
-  direction: string
-  amount_cents: number
-  prev_balance_cents: number
-  new_balance_cents: number
-  recorded_at: string
-}
-
-interface BillingLedgerResponse {
-  items?: BillingLedgerRow[]
-  next_cursor?: string | null
-  has_more?: boolean
-}
-
-function formatPts(cents?: number | null) {
-  return `${((cents ?? 0) / 100).toFixed(2)} PTS`
-}
-
-function errorMessage(body: unknown, fallback: string) {
-  const maybe = body as { error?: { message?: string; code?: string } } | null
-  return maybe?.error?.message ?? maybe?.error?.code ?? fallback
+function fmt(cents: number | undefined | null): string {
+  if (cents == null) return "—";
+  return cents.toLocaleString("zh-CN");
 }
 
 export function BillingPage() {
-  const [tenantId, setTenantId] = useState("tenant_default")
-  const [tenantDraft, setTenantDraft] = useState("tenant_default")
-  const [balance, setBalance] = useState<BillingBalance | null>(null)
-  const [ledger, setLedger] = useState<BillingLedgerRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [recharging, setRecharging] = useState(false)
-  const [rechargeId, setRechargeId] = useState("")
-  const [amountCents, setAmountCents] = useState("10000")
-  const [provider, setProvider] = useState("manual")
-  const [externalReference, setExternalReference] = useState("")
+  const navigate = useNavigate();
+  const [tenantInput, setTenantInput] = useState("");
+  const [tenantId, setTenantId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [balanceResult, setBalanceResult] = useState<ApiResult<Record<string, unknown>> | null>(null);
+  const [ledgerRows, setLedgerRows] = useState<LedgerRow[]>([]);
+  const [ledgerRaw, setLedgerRaw] = useState<string>("");
+  const [notFound, setNotFound] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [confirming, setConfirming] = useState(false);
 
-  const selectedTenant = tenantId.trim()
-  const windows = useMemo(() => balance?.windows ?? [], [balance])
+  const load = useCallback(async (id: string) => {
+    const trimmed = id.trim();
+    if (!trimmed) return;
+    setTenantId(trimmed);
+    setLoading(true);
+    setNotFound(false);
+    setConfirming(false);
+    const [balance, ledger] = await Promise.all([admin.billingBalance(trimmed), admin.billingLedger(trimmed, 25)]);
+    setBalanceResult(balance);
+    const rows = ((ledger.body as { rows?: LedgerRow[] } | null)?.rows || []) as LedgerRow[];
+    setLedgerRows(ledger.ok ? rows : []);
+    setLedgerRaw(ledger.raw);
+    if (!balance.ok && balance.status === 404) setNotFound(true);
+    setLoading(false);
+  }, []);
 
-  async function refreshBilling(nextTenant = selectedTenant) {
-    if (!nextTenant) return
-    setLoading(true)
-    const [balanceRes, ledgerRes] = await Promise.all([
-      requestJson<{ balance?: BillingBalance }>(`/proxy/v1/admin/billing/tenants/${encodeURIComponent(nextTenant)}/balance`),
-      requestJson<BillingLedgerResponse>(
-        `/proxy/v1/admin/billing/tenants/${encodeURIComponent(nextTenant)}/ledger?limit=25`
-      ),
-    ])
-    setLoading(false)
-
-    if (balanceRes.status === 200 && balanceRes.body?.balance) {
-      setBalance(balanceRes.body.balance)
-    } else {
-      setBalance(null)
-      toast.error(errorMessage(balanceRes.body, "无法加载 tenant balance"))
+  const createTenant = useAction(async () => {
+    const r = await admin.billingCreateTenant(tenantId || tenantInput.trim());
+    if (r.ok) {
+      toast.success("租户已创建");
+      await load(tenantId || tenantInput.trim());
     }
+    return r;
+  });
 
-    if (ledgerRes.status === 200) {
-      setLedger(ledgerRes.body?.items ?? [])
-    } else {
-      setLedger([])
-      toast.error(errorMessage(ledgerRes.body, "无法加载 billing ledger"))
+  const recharge = useAction(async () => {
+    const cents = Number(amount);
+    const id = tenantId || tenantInput.trim();
+    const r = await admin.billingRecharge(id, cents, `rch_${id}_${Date.now()}`, "manual", null);
+    if (r.ok) {
+      toast.success(`已充值 ${fmt(cents)} PTS`);
+      setAmount("");
+      setConfirming(false);
+      await load(id);
     }
-  }
+    return r;
+  });
 
-  useEffect(() => {
-    void refreshBilling()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  async function handleSelectTenant(event: React.FormEvent) {
-    event.preventDefault()
-    const next = tenantDraft.trim()
-    if (!next) return
-    setTenantId(next)
-    await refreshBilling(next)
-  }
-
-  async function handleCreateTenant() {
-    const next = tenantDraft.trim() || selectedTenant
-    if (!next) return
-    setCreating(true)
-    const res = await requestJson<{ balance?: BillingBalance }>("/proxy/v1/admin/billing/tenants", {
-      method: "POST",
-      body: { tenant_id: next },
-    })
-    setCreating(false)
-    if (res.status >= 400) {
-      toast.error(errorMessage(res.body, "tenant 创建失败"))
-      return
-    }
-    toast.success("tenant 已创建或已存在")
-    setTenantId(next)
-    setTenantDraft(next)
-    if (res.body?.balance) setBalance(res.body.balance)
-    await refreshBilling(next)
-  }
-
-  async function handleRecharge(event: React.FormEvent) {
-    event.preventDefault()
-    if (!selectedTenant) return
-    const amount = Number(amountCents)
-    if (!Number.isSafeInteger(amount) || amount <= 0) {
-      toast.error("amount_cents 必须是正整数")
-      return
-    }
-    const id = rechargeId.trim() || `rch_${selectedTenant}_${Date.now()}`
-    setRecharging(true)
-    const res = await requestJson(`/proxy/v1/admin/billing/tenants/${encodeURIComponent(selectedTenant)}/recharges`, {
-      method: "POST",
-      body: {
-        recharge_id: id,
-        amount_cents: amount,
-        currency: "PTS",
-        provider: provider.trim() || "manual",
-        external_reference: externalReference.trim() || null,
-      },
-    })
-    setRecharging(false)
-    if (res.status >= 400) {
-      toast.error(errorMessage(res.body, "recharge 记录失败"))
-      return
-    }
-    toast.success("recharge 已记录")
-    setRechargeId("")
-    await refreshBilling(selectedTenant)
-  }
+  const balanceBody = (balanceResult?.body || {}) as Record<string, unknown>;
+  const balanceCents = (balanceBody.balance_cents ?? (balanceBody.balance as Record<string, unknown> | undefined)?.balance_cents) as number | undefined;
+  const amountValid = /^\d+$/.test(amount) && Number(amount) > 0;
+  const authFailure = balanceResult && !balanceResult.ok && balanceResult.failure === "auth" ? balanceResult : null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-base font-bold">Billing 管理</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">P-1 M1.2 admin-only balance / recharge / ledger surface</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refreshBilling()} disabled={loading || !selectedTenant}>
-          <RefreshCw className={cn("mr-1.5 h-3.5 w-3.5", loading && "animate-spin")} />
-          刷新
-        </Button>
-      </div>
+    <div>
+      <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">资金 / 计费</div>
+      <h1 className="mb-1 text-2xl font-bold">计费</h1>
+      <p className="mb-5 text-muted-foreground">查询租户余额与账本,录入人工充值。Caller 的租户 ID = 注册时打印的 user_id。</p>
 
-      <Alert className="border-amber-500/30 bg-amber-50/80 text-amber-950">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertTitle>admin-only，不代表终端用户计费已 ready</AlertTitle>
-        <AlertDescription>
-          这里只允许 operator 创建 tenant、查看余额、记录人工充值和查看 ledger。client-facing billing、扣费 enforcement、提现或法币结算仍然不在 ready 结论内。
-        </AlertDescription>
-      </Alert>
-
-      <div className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5 text-sm">
-              <Search className="h-4 w-4 text-purple-500" />
-              Tenant
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <form onSubmit={handleSelectTenant} className="space-y-2">
-              <Label>tenant_id</Label>
-              <Input value={tenantDraft} onChange={(e) => setTenantDraft(e.target.value)} className="font-mono text-sm" />
-              <div className="flex flex-wrap gap-2">
-                <Button type="submit" size="sm" disabled={loading || !tenantDraft.trim()}>
-                  查询
-                </Button>
-                <Button type="button" variant="outline" size="sm" disabled={creating || !tenantDraft.trim()} onClick={handleCreateTenant}>
-                  <Plus className="mr-1.5 h-3.5 w-3.5" />
-                  {creating ? "创建中…" : "创建 tenant"}
-                </Button>
-              </div>
-            </form>
-
-            <form onSubmit={handleRecharge} className="space-y-2 border-t border-border pt-3">
-              <Label>recharge_id</Label>
-              <Input value={rechargeId} onChange={(e) => setRechargeId(e.target.value)} placeholder="留空自动生成" className="font-mono text-sm" />
-              <Label>amount_cents</Label>
-              <Input value={amountCents} onChange={(e) => setAmountCents(e.target.value)} inputMode="numeric" className="font-mono text-sm" />
-              <Label>provider</Label>
-              <Input value={provider} onChange={(e) => setProvider(e.target.value)} className="font-mono text-sm" />
-              <Label>external_reference</Label>
-              <Input value={externalReference} onChange={(e) => setExternalReference(e.target.value)} placeholder="可选" className="font-mono text-sm" />
-              <Button type="submit" size="sm" disabled={recharging || !selectedTenant}>
-                <CreditCard className="mr-1.5 h-3.5 w-3.5" />
-                {recharging ? "记录中…" : "记录人工充值"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Balance</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-2">
-                <Skeleton className="h-16 w-full" />
-                <Skeleton className="h-24 w-full" />
-              </div>
-            ) : balance ? (
-              <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">available</p>
-                    <p className="mt-1 text-xl font-bold">{formatPts(balance.credit_balance_cents)}</p>
-                  </div>
-                  <div className="rounded border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">pending</p>
-                    <p className="mt-1 text-xl font-bold">{formatPts(balance.pending_credit_cents)}</p>
-                  </div>
-                  <div className="rounded border bg-muted/20 p-3">
-                    <p className="text-xs text-muted-foreground">mode</p>
-                    <p className="mt-1 text-xl font-bold">{balance.credit_mode ?? "prepaid"}</p>
-                  </div>
-                </div>
-                <div className="overflow-hidden rounded border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>window</TableHead>
-                        <TableHead>caller used</TableHead>
-                        <TableHead>responder earned</TableHead>
-                        <TableHead>hard block</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {windows.map((window) => (
-                        <TableRow key={window.window_kind}>
-                          <TableCell className="font-mono text-xs">{window.window_kind}</TableCell>
-                          <TableCell>{formatPts(window.used_as_caller_cents)}</TableCell>
-                          <TableCell>{formatPts(window.earned_as_responder_cents)}</TableCell>
-                          <TableCell>
-                            <Badge variant="solid" tone={window.hard_block_on_exceed ? "destructive" : "neutral"} className="text-[10px]">
-                              {window.hard_block_on_exceed ? "on" : "off"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            ) : (
-              <p className="py-8 text-center text-sm text-muted-foreground">选择或创建 tenant 后显示余额。</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">Ledger</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {loading ? (
-            <div className="space-y-2 p-4">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+      <Card className="mb-5">
+        <CardContent className="pt-6">
+          <Label htmlFor="tenant-id">租户 ID(输入后回车或失焦自动查询)</Label>
+          <Input
+            id="tenant-id"
+            value={tenantInput}
+            onChange={(e) => setTenantInput(e.target.value)}
+            onBlur={() => tenantInput.trim() && tenantInput.trim() !== tenantId && void load(tenantInput)}
+            onKeyDown={(e) => { if (e.key === "Enter") void load(tenantInput); }}
+            placeholder="user_…"
+            className="mt-1.5 max-w-xl font-mono"
+          />
+          {notFound && (
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              未找到该租户——如果这是新 Caller 的首次充值,先创建租户。
+              <BusyButton size="sm" busy={createTenant.busy} onClick={() => void createTenant.run()}>创建租户</BusyButton>
             </div>
-          ) : ledger.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">暂无 ledger 记录。</p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>recorded_at</TableHead>
-                  <TableHead>kind</TableHead>
-                  <TableHead>direction</TableHead>
-                  <TableHead>amount</TableHead>
-                  <TableHead>balance</TableHead>
-                  <TableHead>ledger_id</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {ledger.map((row) => (
-                  <TableRow key={row.ledger_id}>
-                    <TableCell className="text-xs">{new Date(row.recorded_at).toLocaleString()}</TableCell>
-                    <TableCell>{row.kind}</TableCell>
-                    <TableCell>{row.direction}</TableCell>
-                    <TableCell>{formatPts(row.amount_cents)}</TableCell>
-                    <TableCell>{formatPts(row.prev_balance_cents)} → {formatPts(row.new_balance_cents)}</TableCell>
-                    <TableCell className="max-w-[220px] truncate font-mono text-xs">{row.ledger_id}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           )}
+          <ActionResult result={createTenant.result?.ok ? null : createTenant.result} />
         </CardContent>
       </Card>
+
+      <DataState
+        loading={loading}
+        result={authFailure || (balanceResult && !balanceResult.ok && !notFound ? balanceResult : null)}
+        emptyText={tenantId ? "该租户暂无数据。" : "输入租户 ID 后自动查询;创建、充值与账本都在本页完成。"}
+        onConfigureCredentials={() => navigate("/credentials")}
+      >
+        {tenantId && balanceResult?.ok ? (
+          <div className="grid gap-5 lg:grid-cols-[1.3fr_.7fr]">
+            <Card className="order-2 lg:order-1">
+              <CardHeader><CardTitle className="text-base">账本(最近 {ledgerRows.length} 条)</CardTitle></CardHeader>
+              <CardContent>
+                {ledgerRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">查询成功,但该租户还没有账本记录。</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                          <th className="py-2 pr-3">类型</th><th className="py-2 pr-3">说明</th>
+                          <th className="py-2 pr-3">金额</th><th className="py-2 pr-3">余额</th><th className="py-2">时间</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ledgerRows.map((row, i) => {
+                          const kind = KIND_LABEL[String(row.kind)] || { label: String(row.kind || "—"), cls: "bg-muted text-muted-foreground" };
+                          return (
+                            <tr key={row.ledger_id || i} className="border-b border-border/60 align-top">
+                              <td className="py-2.5 pr-3"><Badge className={kind.cls} variant="outline">{kind.label}</Badge></td>
+                              <td className="py-2.5 pr-3">
+                                {row.request_id ? <CopyChip value={String(row.request_id)} label={`${String(row.request_id).slice(0, 18)}…`} /> :
+                                  <span className="text-muted-foreground">{String(row.kind) === "recharge" ? "人工充值" : "—"}</span>}
+                              </td>
+                              <td className={`py-2.5 pr-3 font-medium ${Number(row.amount_cents) > 0 ? "text-emerald-600" : Number(row.amount_cents) < 0 ? "text-amber-700" : ""}`}>
+                                {Number(row.amount_cents) > 0 ? "+" : ""}{fmt(row.amount_cents)}
+                              </td>
+                              <td className="py-2.5 pr-3">{fmt(row.new_balance_cents)}</td>
+                              <td className="py-2.5 text-muted-foreground">{row.recorded_at ? new Date(String(row.recorded_at)).toLocaleTimeString() : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <TechDetails raw={ledgerRaw} />
+              </CardContent>
+            </Card>
+
+            <div className="order-1 space-y-5 lg:order-2">
+              <div className="rounded-xl bg-gradient-to-br from-violet-500 to-violet-400 p-5 text-white shadow-sm">
+                <div className="text-xs opacity-85">当前余额</div>
+                <div className="text-3xl font-bold">{fmt(balanceCents)} <span className="text-base font-medium">PTS</span></div>
+                <div className="mt-1 text-xs opacity-90">租户 <span className="font-mono">{tenantId.slice(0, 22)}…</span></div>
+              </div>
+              <Card>
+                <CardHeader><CardTitle className="text-base">人工充值</CardTitle></CardHeader>
+                <CardContent>
+                  <Label htmlFor="amount">金额(PTS)<span className="text-red-500"> *必填</span></Label>
+                  <Input id="amount" inputMode="numeric" value={amount} onChange={(e) => { setAmount(e.target.value); setConfirming(false); }} placeholder="例如 20000" className="mt-1.5" />
+                  <p className="mt-1.5 text-xs text-muted-foreground">provider=manual,凭证号自动生成。</p>
+                  {!confirming ? (
+                    <Button className="mt-3" disabled={!amountValid} onClick={() => setConfirming(true)}>充值…</Button>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+                      确认:为 <span className="font-mono text-xs">{tenantId.slice(0, 18)}…</span> 充值 <b>{fmt(Number(amount))} PTS</b>
+                      {balanceCents != null && <>(充值后余额 {fmt(balanceCents + Number(amount))})</>}
+                      <div className="mt-2 flex gap-2">
+                        <BusyButton size="sm" busy={recharge.busy} onClick={() => void recharge.run()}>确认充值</BusyButton>
+                        <Button size="sm" variant="outline" onClick={() => setConfirming(false)}>取消</Button>
+                      </div>
+                    </div>
+                  )}
+                  <ActionResult result={recharge.result?.ok ? null : recharge.result} />
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        ) : null}
+      </DataState>
     </div>
-  )
+  );
 }

@@ -1,9 +1,9 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --font-sans: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
-  --font-display: "Space Grotesk", sans-serif;
+  --font-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
 
   --brand-purple: #8b5cf6;
   --brand-green: #a3e635;

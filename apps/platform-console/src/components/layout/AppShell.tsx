@@ -1,118 +1,162 @@
-import { NavLink, useNavigate, Outlet } from "react-router-dom"
-import { Activity, Users, BookOpen, List, ClipboardList, Star, LogOut, RefreshCw, Shield, Wifi, CreditCard } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { cn } from "@/components/ui/utils"
-import { useAuth } from "@/hooks/useAuth"
+import { useState } from "react";
+import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Lock, Menu, RefreshCw, ShieldCheck, ShieldAlert, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/components/ui/utils";
+import { PHASE_LABEL, useConsole } from "@/state/console";
 
-function BrandBackdrop() {
+const NAV: { group: string; items: { to: string; label: string; needsUnlock?: boolean }[] }[] = [
+  { group: "概览", items: [{ to: "/overview", label: "总览" }] },
+  {
+    group: "运营",
+    items: [
+      { to: "/reviews", label: "审批队列", needsUnlock: true },
+      { to: "/requests", label: "请求", needsUnlock: true }
+    ]
+  },
+  {
+    group: "目录",
+    items: [
+      { to: "/responders", label: "Responders", needsUnlock: true },
+      { to: "/hotlines", label: "Hotlines", needsUnlock: true },
+      { to: "/marketplace", label: "Marketplace" }
+    ]
+  },
+  {
+    group: "资金",
+    items: [
+      { to: "/billing", label: "计费", needsUnlock: true },
+      { to: "/audit", label: "审计", needsUnlock: true }
+    ]
+  },
+  {
+    group: "设置",
+    items: [
+      { to: "/session", label: "会话与解锁" },
+      { to: "/credentials", label: "网关凭据", needsUnlock: true }
+    ]
+  }
+];
+
+function PhaseBadge() {
+  const { phase, credentialVerified } = useConsole();
+  const tone =
+    phase === "unlocked"
+      ? credentialVerified
+        ? "bg-emerald-50 text-emerald-700"
+        : "bg-amber-50 text-amber-700"
+      : phase === "unreachable"
+        ? "bg-red-50 text-red-700"
+        : "bg-amber-50 text-amber-700";
+  const label =
+    phase === "unlocked"
+      ? credentialVerified === true
+        ? "已解锁 · 凭据已验证"
+        : credentialVerified === false
+          ? "已解锁 · 凭据无效"
+          : "已解锁 · 凭据未验证"
+      : PHASE_LABEL[phase];
+  const Icon = phase === "unlocked" && credentialVerified ? ShieldCheck : phase === "unlocked" ? ShieldAlert : Lock;
   return (
-    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-      <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 opacity-40">
-        {["#FACC15", "#8B5CF6", "#3B82F6", "#EC4899", "#A3E635", "#F97316", "#6366F1", "#EF4444", "#14B8A6"].map(
-          (color, i) => <div key={i} style={{ backgroundColor: color }} />
-        )}
-      </div>
-      <div className="absolute inset-0 opacity-20">
-        <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <pattern id="brand-grid" x="0" y="0" width="200" height="200" patternUnits="userSpaceOnUse">
-              <rect width="200" height="200" fill="none" />
-              <rect x="0" y="0" width="200" height="200" fill="none" stroke="#111111" strokeWidth="5" strokeLinecap="square" />
-              <g stroke="#111111" strokeWidth="5" fill="none" strokeLinecap="square">
-                <line x1="0" y1="0" x2="60" y2="60" />
-                <line x1="200" y1="0" x2="140" y2="60" />
-                <line x1="0" y1="200" x2="60" y2="140" />
-                <line x1="200" y1="200" x2="140" y2="140" />
-                <rect x="60" y="60" width="80" height="80" />
-                <circle cx="100" cy="100" r="40" />
-                <line x1="60" y1="60" x2="140" y2="140" />
-                <line x1="140" y1="60" x2="60" y2="140" />
-              </g>
-              <g fill="#111111" fontFamily="'Inter', 'Helvetica Neue', Arial, sans-serif" fontWeight="900" letterSpacing="0.05em">
-                <text x="12" y="38" fontSize="22" textAnchor="start">CALL</text>
-                <text x="188" y="180" fontSize="22" textAnchor="end">ANYTHING</text>
-              </g>
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#brand-grid)" />
-        </svg>
-      </div>
-      <div className="absolute left-[10%] top-24 h-52 w-64 bg-black/10" />
-      <div className="absolute bottom-32 right-[15%] h-60 w-72 bg-black/10 -rotate-6" />
-      <div className="absolute top-[42%] right-[8%] h-56 w-56 rounded-full bg-black/10" />
-      <div className="absolute bottom-[48%] left-[12%] h-48 w-48 rounded-full bg-black/10" />
-      <div className="absolute left-20 top-20 h-64 w-64 rotate-12 bg-[#A3E635]/30" />
-      <div className="absolute bottom-20 right-20 h-80 w-80 -rotate-12 bg-[#8B5CF6]/25" />
-    </div>
-  )
+    <span className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold", tone)}>
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </span>
+  );
 }
 
-const NAV = [
-  { label: "Overview", path: "/", icon: Activity, end: true },
-  { label: "Responder 管理", path: "/responders", icon: Users },
-  { label: "Hotline 管理", path: "/hotlines", icon: BookOpen },
-  { label: "Request 监控", path: "/requests", icon: List },
-  { label: "Audit 日志", path: "/audit", icon: ClipboardList },
-  { label: "Review 队列", path: "/reviews", icon: Star },
-  { label: "Billing 管理", path: "/billing", icon: CreditCard },
-  { label: "Relay 监控", path: "/relay", icon: Wifi },
-]
-
-function Sidebar() {
-  const { logout, refresh } = useAuth()
-  const navigate = useNavigate()
-
+function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+  const { phase } = useConsole();
   return (
-    <aside className="flex w-52 flex-col border-r border-border bg-sidebar/90 backdrop-blur-sm h-full">
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
-        <Shield className="h-4 w-4 text-purple-500" />
-        <span className="text-sm font-bold">Platform Console</span>
-      </div>
-      <nav className="flex-1 overflow-y-auto py-2 px-2">
-        {NAV.map((item) => {
-          const Icon = item.icon
-          return (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              end={item.end}
-              className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors mb-0.5",
-                  isActive
-                    ? "bg-purple-500/10 text-purple-700"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted"
-                )
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0 text-purple-500" />
-              {item.label}
-            </NavLink>
-          )
-        })}
-      </nav>
-      <div className="border-t border-border px-2 py-2 flex gap-1">
-        <Button variant="ghost" size="icon" onClick={refresh} title="刷新">
-          <RefreshCw className="h-3.5 w-3.5" />
-        </Button>
-        <Button variant="ghost" size="icon" onClick={async () => { await logout(); navigate("/auth/unlock") }} title="退出">
-          <LogOut className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-    </aside>
-  )
+    <nav className="mt-4 space-y-4 text-sm">
+      {NAV.map((group) => (
+        <div key={group.group}>
+          <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-widest text-muted-foreground">{group.group}</div>
+          {group.items.map((item) => {
+            const disabled = item.needsUnlock && phase !== "unlocked";
+            return (
+              <NavLink
+                key={item.to}
+                to={disabled ? "/session" : item.to}
+                onClick={onNavigate}
+                className={({ isActive }) =>
+                  cn(
+                    "block rounded-lg px-3 py-1.5",
+                    isActive && !disabled ? "bg-primary font-semibold text-primary-foreground" : "hover:bg-accent",
+                    disabled && "text-muted-foreground/50"
+                  )
+                }
+                title={disabled ? "解锁后可用" : undefined}
+              >
+                {item.label}
+              </NavLink>
+            );
+          })}
+        </div>
+      ))}
+    </nav>
+  );
 }
 
 export function AppShell() {
+  const { phase, credentialVerified, refresh, checking } = useConsole();
+  const navigate = useNavigate();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
   return (
-    <div className="isolate relative flex h-screen flex-col overflow-hidden">
-      <BrandBackdrop />
-      <div className="relative z-10 flex h-full overflow-hidden">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto p-6">
+    <div className="flex min-h-screen bg-[#f7f7fb] text-foreground">
+      {/* desktop sidebar */}
+      <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col overflow-y-auto border-r border-border bg-white px-3 py-5 lg:flex">
+        <div className="px-3">
+          <div className="text-lg font-bold">Platform Console</div>
+          <div className="text-xs text-muted-foreground">运营者控制台</div>
+          <div className="mt-3"><PhaseBadge /></div>
+        </div>
+        <SidebarNav />
+      </aside>
+
+      {/* mobile drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-40 lg:hidden">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setMobileOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-72 overflow-y-auto bg-white px-3 py-5 shadow-xl">
+            <div className="flex items-center justify-between px-3">
+              <div className="text-lg font-bold">Platform Console</div>
+              <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)}><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="mt-2 px-3"><PhaseBadge /></div>
+            <SidebarNav onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </div>
+      )}
+
+      <div className="min-w-0 flex-1">
+        {/* top bar (mobile menu + credential banner) */}
+        <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-border bg-white/85 px-4 py-2.5 backdrop-blur lg:px-8">
+          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setMobileOpen(true)}>
+            <Menu className="h-5 w-5" />
+          </Button>
+          <div className="lg:hidden"><PhaseBadge /></div>
+          <div className="ml-auto">
+            <Button variant="ghost" size="sm" onClick={() => void refresh()} disabled={checking}>
+              <RefreshCw className={cn("h-4 w-4", checking && "animate-spin")} />
+              刷新状态
+            </Button>
+          </div>
+        </div>
+
+        {phase === "unlocked" && credentialVerified === false && (
+          <div className="mx-4 mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 lg:mx-8">
+            <ShieldAlert className="h-4 w-4" />
+            管理凭据无效——审批、计费、审计工具暂不可用。
+            <Button size="sm" variant="outline" onClick={() => navigate("/credentials")}>去配置凭据 →</Button>
+          </div>
+        )}
+
+        <main className="mx-auto w-full max-w-6xl px-4 py-6 lg:px-8 lg:py-8">
           <Outlet />
         </main>
       </div>
     </div>
-  )
+  );
 }
