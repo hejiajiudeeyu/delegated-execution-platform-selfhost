@@ -69,7 +69,7 @@ function generatePublicKeyPem() {
 describe("platform-api billing admin integration", () => {
   it("exposes admin tenant, balance, recharge, and ledger read model", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store });
+    const state = createPlatformState({ billingStore: billing.store, bootstrapEnabled: true });
     const server = createPlatformServer({
       serviceName: "platform-api-billing-test",
       state
@@ -133,7 +133,7 @@ describe("platform-api billing admin integration", () => {
 
   it("keeps billing admin routes behind operator auth and maps tenant misses", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store });
+    const state = createPlatformState({ billingStore: billing.store, bootstrapEnabled: true });
     const server = createPlatformServer({
       serviceName: "platform-api-billing-auth-test",
       state
@@ -166,7 +166,7 @@ describe("platform-api billing admin integration", () => {
 describe("platform-api caller billing integration", () => {
   it("allows callers to read their own balance and ledger", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store });
+    const state = createPlatformState({ billingStore: billing.store, bootstrapEnabled: true });
     const server = createPlatformServer({
       serviceName: "platform-api-caller-billing-test",
       state
@@ -212,7 +212,7 @@ describe("platform-api caller billing integration", () => {
 
   it("keeps caller ledger reads scoped to the authenticated tenant", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store });
+    const state = createPlatformState({ billingStore: billing.store, bootstrapEnabled: true });
     const server = createPlatformServer({
       serviceName: "platform-api-caller-billing-isolation-test",
       state
@@ -258,7 +258,7 @@ describe("platform-api caller billing integration", () => {
 
   it("returns a clear billing-not-enabled error for callers without a tenant", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store });
+    const state = createPlatformState({ billingStore: billing.store, bootstrapEnabled: true });
     const server = createPlatformServer({
       serviceName: "platform-api-caller-billing-missing-test",
       state
@@ -368,7 +368,7 @@ describe("platform-api billing enforcement integration", () => {
   });
 
   it("keeps token issuance unchanged when billing enforcement is disabled", async () => {
-    const state = createPlatformState({ billingEnforcement: "disabled" });
+    const state = createPlatformState({ billingEnforcement: "disabled", bootstrapEnabled: true });
     const responder = markBootstrapHotlinePaid(state);
     const server = createPlatformServer({
       serviceName: "platform-api-billing-disabled-test",
@@ -396,7 +396,7 @@ describe("platform-api billing enforcement integration", () => {
 
   it("rejects enforced paid token issuance when prepaid balance is insufficient", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced" });
+    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", bootstrapEnabled: true });
     const responder = markBootstrapHotlinePaid(state);
     const server = createPlatformServer({
       serviceName: "platform-api-billing-insufficient-test",
@@ -434,7 +434,7 @@ describe("platform-api billing enforcement integration", () => {
 
   it("holds prepaid balance at enforced paid token issuance and settles on completion", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced" });
+    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", bootstrapEnabled: true });
     const responder = markBootstrapHotlinePaid(state);
     const server = createPlatformServer({
       serviceName: "platform-api-billing-success-test",
@@ -511,7 +511,7 @@ describe("platform-api billing enforcement integration", () => {
 
   it("refunds prepaid holds on enforced paid failed calls", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced" });
+    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", bootstrapEnabled: true });
     const responder = markBootstrapHotlinePaid(state);
     const server = createPlatformServer({
       serviceName: "platform-api-billing-refund-test",
@@ -573,7 +573,7 @@ describe("platform-api billing enforcement integration", () => {
 
   it("refunds expired paid holds lazily when callers read balance and events", async () => {
     const billing = await createBillingTestStore();
-    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", tokenTtlSeconds: 1 });
+    const state = createPlatformState({ billingStore: billing.store, billingEnforcement: "enforced", tokenTtlSeconds: 1, bootstrapEnabled: true });
     const responder = markBootstrapHotlinePaid(state);
     const server = createPlatformServer({
       serviceName: "platform-api-billing-expired-hold-test",

@@ -1366,7 +1366,7 @@ export function createPlatformState(options = {}) {
   const bootstrapEnabled =
     options.bootstrapEnabled !== undefined
       ? Boolean(options.bootstrapEnabled)
-      : readBooleanEnv(process.env.ENABLE_BOOTSTRAP_RESPONDERS, true);
+      : readBooleanEnv(process.env.ENABLE_BOOTSTRAP_RESPONDERS, false);
   const bootstrapResponderSigning =
     process.env.BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM && process.env.BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM
       ? {

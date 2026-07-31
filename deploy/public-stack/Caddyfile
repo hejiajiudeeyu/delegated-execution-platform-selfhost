@@ -12,8 +12,15 @@
     reverse_proxy platform-api:8080
   }
 
-  handle_path /relay/* {
+  # Relay business endpoints (send/poll/ack/peek) are unauthenticated and must
+  # stay internal-only; only the health probe is exposed at the edge.
+  handle /relay/healthz {
+    rewrite * /healthz
     reverse_proxy relay:8090
+  }
+
+  handle /relay/* {
+    respond "relay is internal-only" 403
   }
 
   handle_path /gateway/* {

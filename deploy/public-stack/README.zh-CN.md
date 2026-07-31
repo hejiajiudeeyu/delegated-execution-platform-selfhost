@@ -40,7 +40,7 @@
 ## 公网路由
 
 - `/platform/*` -> `platform-api`
-- `/relay/*` -> `relay`
+- `/relay/healthz` -> `relay`（其余 relay 端点仅限内网；因 relay 业务路由无鉴权，边缘一律 403）
 - `/gateway/*` -> `platform-console-gateway`
 - `/console/*` -> `platform-console-gateway` 提供的静态控制台资源
 

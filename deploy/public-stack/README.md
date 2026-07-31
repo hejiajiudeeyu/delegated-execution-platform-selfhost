@@ -37,7 +37,7 @@ It includes:
 ## Public Routes
 
 - `/platform/*` -> `platform-api`
-- `/relay/*` -> `relay`
+- `/relay/healthz` -> `relay` (all other relay endpoints are internal-only; the edge answers 403 because relay business routes are unauthenticated)
 - `/gateway/*` -> `platform-console-gateway`
 - `/console/*` -> `platform-console-gateway` static console assets
 
