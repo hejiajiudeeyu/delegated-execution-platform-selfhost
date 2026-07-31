@@ -304,6 +304,10 @@ async function main() {
   process.env.PLATFORM_CONSOLE_BOOTSTRAP_SECRET ||= `bootstrap_${crypto.randomBytes(12).toString("hex")}`;
   process.env.PUBLIC_SITE_ADDRESS ||= "http://127.0.0.1";
   process.env.TOKEN_SECRET ||= crypto.randomBytes(32).toString("hex");
+  // the relay refuses to start unauthenticated; generate real values rather
+  // than letting the smoke run on the .env.example placeholders
+  process.env.RELAY_ADMIN_TOKEN ||= `relay_admin_${crypto.randomBytes(16).toString("hex")}`;
+  process.env.RELAY_TOKEN_SECRET ||= crypto.randomBytes(32).toString("hex");
 
   const compose = resolveComposeArgs();
   const baseUrl = `http://127.0.0.1:${process.env.PUBLIC_HTTP_PORT}`;

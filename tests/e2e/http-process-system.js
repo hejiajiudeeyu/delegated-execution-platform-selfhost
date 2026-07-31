@@ -38,6 +38,12 @@ export async function startHttpProcessSystem() {
   const callerPort = randomPort(43000);
   const responderPort = randomPort(44000);
 
+  // The relay authenticates its business routes, so the whole e2e stack runs
+  // authenticated: this is the flow a real deployment uses, and it proves
+  // platform-api and both client controllers carry the credential correctly.
+  const relayAdminToken = `relay_admin_${crypto.randomBytes(12).toString("hex")}`;
+  const relayTokenSecret = `relay_secret_${crypto.randomBytes(16).toString("hex")}`;
+
   const sharedEnv = {
     DELEXEC_HOME: runtimeDir,
     ...HERMETIC_STORE_ENV,
@@ -55,7 +61,9 @@ export async function startHttpProcessSystem() {
     port: relayPort,
     env: {
       ...sharedEnv,
-      SERVICE_NAME: "transport-relay-http-e2e"
+      SERVICE_NAME: "transport-relay-http-e2e",
+      RELAY_ADMIN_TOKEN: relayAdminToken,
+      RELAY_TOKEN_SECRET: relayTokenSecret
     }
   });
 
@@ -70,6 +78,7 @@ export async function startHttpProcessSystem() {
     env: {
       ...sharedEnv,
       SERVICE_NAME: "platform-api-http-e2e",
+      RELAY_ADMIN_TOKEN: relayAdminToken,
       TOKEN_SECRET: `test-token-secret-${crypto.randomBytes(8).toString("hex")}`,
       BOOTSTRAP_RESPONDER_ID: responderId,
       BOOTSTRAP_HOTLINE_ID: hotlineId,
@@ -92,6 +101,7 @@ export async function startHttpProcessSystem() {
       PLATFORM_API_BASE_URL: platform.baseUrl,
       TRANSPORT_TYPE: "relay_http",
       TRANSPORT_BASE_URL: relay.baseUrl,
+      TRANSPORT_AUTH_TOKEN: relayAdminToken,
       TRANSPORT_RECEIVER: "caller-controller",
       CALLER_CONTROLLER_POLL_INTERVAL_ACTIVE_S: "1",
       CALLER_CONTROLLER_POLL_INTERVAL_BACKOFF_S: "1",
@@ -117,6 +127,7 @@ export async function startHttpProcessSystem() {
       RESPONDER_SIGNING_PRIVATE_KEY_PEM: signing.privateKeyPem.replace(/\n/g, "\\n"),
       TRANSPORT_TYPE: "relay_http",
       TRANSPORT_BASE_URL: relay.baseUrl,
+      TRANSPORT_AUTH_TOKEN: relayAdminToken,
       TRANSPORT_RECEIVER: responderId,
       RESPONDER_INBOX_POLL_INTERVAL_MS: "25",
       RESPONDER_HEARTBEAT_INTERVAL_MS: "250"

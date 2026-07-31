@@ -19,8 +19,14 @@ const SERVICE_PACKAGES = [
   },
   {
     workspace: "@delexec/transport-relay",
+    // credentials supplied on purpose: the packaged relay refuses to start
+    // unauthenticated, so this smoke verifies the same boot path a real
+    // deployment takes rather than an opt-out
     bin: "delexec-relay",
-    env: () => ({})
+    env: () => ({
+      RELAY_ADMIN_TOKEN: "service-package-test-relay-admin-token",
+      RELAY_TOKEN_SECRET: "service-package-test-relay-token-secret"
+    })
   }
 ];
 

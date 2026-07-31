@@ -897,7 +897,10 @@ function buildReviewTransportConfig() {
   }
   return {
     baseUrl,
-    receiver: REVIEW_TEST_RECEIVER_PREFIX
+    receiver: REVIEW_TEST_RECEIVER_PREFIX,
+    // platform-api holds the relay admin token: review tests read from
+    // per-request receivers, which a receiver-scoped token could not cover
+    authToken: process.env.RELAY_ADMIN_TOKEN || null
   };
 }
 

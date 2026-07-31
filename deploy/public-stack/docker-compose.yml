@@ -25,6 +25,9 @@ services:
       PORT: ${RELAY_PORT:-8090}
       SERVICE_NAME: transport-relay
       RELAY_SQLITE_PATH: /data/relay.sqlite
+      RELAY_ADMIN_TOKEN: ${RELAY_ADMIN_TOKEN:?RELAY_ADMIN_TOKEN must be set; the relay carries task envelopes}
+      RELAY_TOKEN_SECRET: ${RELAY_TOKEN_SECRET:?RELAY_TOKEN_SECRET must be set to issue receiver tokens}
+      RELAY_VISIBILITY_TIMEOUT_S: ${RELAY_VISIBILITY_TIMEOUT_S:-60}
     volumes:
       - public-stack-relay-data:/data
 
@@ -41,6 +44,7 @@ services:
       BILLING_ENFORCEMENT: ${BILLING_ENFORCEMENT:-disabled}
       TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
       REVIEW_TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
+      RELAY_ADMIN_TOKEN: ${RELAY_ADMIN_TOKEN:?RELAY_ADMIN_TOKEN must be set; platform-api authenticates to the relay}
       ENABLE_BOOTSTRAP_RESPONDERS: ${ENABLE_BOOTSTRAP_RESPONDERS:-false}
       BOOTSTRAP_RESPONDER_ID: ${BOOTSTRAP_RESPONDER_ID:-}
       BOOTSTRAP_HOTLINE_ID: ${BOOTSTRAP_HOTLINE_ID:-}
