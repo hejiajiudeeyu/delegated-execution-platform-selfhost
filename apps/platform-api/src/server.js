@@ -2835,6 +2835,90 @@ function canAccessRequestArtifacts(state, auth, request) {
   return false;
 }
 
+
+// ------------------------------------------------- console aggregate views
+//
+// The operator console needs two reads the resource-shaped API cannot give it:
+// "what needs me right now" and "the whole story of one call". Building those
+// by joining several list endpoints in the browser is what forced the console
+// into per-endpoint pages, so the join belongs here.
+//
+// Honesty rule for the four state axes: only report an axis the platform
+// actually tracks today. Execution and settlement are derived from real state;
+// delivery integrity and acceptance land in M3. An untracked axis reports
+// tracked:false rather than a plausible-looking value, because a fabricated
+// "accepted" would be worse than an honest blank.
+
+const STUCK_CALL_GRACE_MS = Number(process.env.STUCK_CALL_GRACE_MS || 15 * 60 * 1000);
+
+// Legacy request.status predates the four-axis model; this is the documented
+// projection, not an invention.
+const EXECUTION_FROM_LEGACY_EVENT = Object.freeze({
+  COMPLETED: "delivered",
+  FAILED: "failed",
+  TIMED_OUT: "timed_out",
+  ACKED: "executing",
+  TASK_TOKEN_ISSUED: "submitted",
+  DELIVERY_META_ISSUED: "submitted"
+});
+
+function latestEventOf(request) {
+  const events = Array.isArray(request.events) ? request.events : [];
+  return events.length > 0 ? events[events.length - 1] : null;
+}
+
+function projectExecutionState(request) {
+  const events = Array.isArray(request.events) ? request.events : [];
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const mapped = EXECUTION_FROM_LEGACY_EVENT[events[index].event_type];
+    if (mapped) {
+      return mapped;
+    }
+  }
+  return "submitted";
+}
+
+function buildCallStateAxes(request) {
+  const settlement = request.billing?.state || null;
+  return {
+    execution: {
+      value: projectExecutionState(request),
+      tracked: true,
+      source: "request events"
+    },
+    delivery_integrity: {
+      value: null,
+      tracked: false,
+      reason: "delivery verification is not implemented yet (M3)"
+    },
+    acceptance: {
+      value: null,
+      tracked: false,
+      reason: "acceptance window and revision are not implemented yet (M3)"
+    },
+    settlement: {
+      value: settlement === "held" ? "held" : settlement === "settled" ? "settled" : settlement === "refunded" ? "refunded" : "none",
+      tracked: Boolean(request.billing),
+      source: request.billing ? "request.billing" : "no billing on this request"
+    }
+  };
+}
+
+// A call is "stuck" when it has started but has not reached any terminal event
+// within the grace window. This is the guardrail NFR-R01 asks for, surfaced
+// before it becomes a silent permanent pending.
+function isStuckCall(request, now) {
+  const execution = projectExecutionState(request);
+  if (["delivered", "failed", "timed_out", "rejected", "canceled"].includes(execution)) {
+    return false;
+  }
+  const latest = latestEventOf(request);
+  if (!latest?.recorded_at) {
+    return false;
+  }
+  return now - Date.parse(latest.recorded_at) > STUCK_CALL_GRACE_MS;
+}
+
 export function createPlatformServer({
   state = createPlatformState(),
   serviceName = "platform-api",
@@ -4175,6 +4259,166 @@ export function createPlatformServer({
           .filter((item) => !tag || (item.tags || []).includes(tag))
           .filter((item) => matchesQuery(item, q));
         sendJson(res, 200, paginateItems(items, { limit, offset }));
+        return;
+      }
+
+      // What needs the operator right now. Empty means genuinely nothing to do,
+      // which the console must be able to say plainly instead of showing green
+      // lights and leaving the operator to guess.
+      if (method === "GET" && pathname === "/v1/admin/attention") {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const now = Date.now();
+        const items = [];
+
+        const pendingHotlines = Array.from(state.catalog.values()).filter((item) => (item.review_status || "pending") === "pending");
+        if (pendingHotlines.length > 0) {
+          items.push({
+            kind: "hotline_review_pending",
+            severity: "action",
+            count: pendingHotlines.length,
+            summary: `${pendingHotlines.length} 条热线等待审核`,
+            targets: pendingHotlines.slice(0, 20).map((item) => ({ type: "hotline", id: item.hotline_id, label: item.display_name || item.hotline_id }))
+          });
+        }
+
+        const pendingResponders = Array.from(state.responders.values()).filter((item) => (item.review_status || "pending") === "pending");
+        if (pendingResponders.length > 0) {
+          items.push({
+            kind: "responder_review_pending",
+            severity: "action",
+            count: pendingResponders.length,
+            summary: `${pendingResponders.length} 个责任方等待审核`,
+            targets: pendingResponders.slice(0, 20).map((item) => ({ type: "responder", id: item.responder_id, label: item.display_name || item.responder_id }))
+          });
+        }
+
+        const stuck = Array.from(state.requests.values()).filter((request) => isStuckCall(request, now));
+        if (stuck.length > 0) {
+          items.push({
+            kind: "call_stuck",
+            severity: "attention",
+            count: stuck.length,
+            summary: `${stuck.length} 个调用超过宽限期仍未到终态`,
+            targets: stuck.slice(0, 20).map((request) => ({ type: "request", id: request.request_id, label: request.hotline_id || request.request_id }))
+          });
+        }
+
+        // Funds still held on a call that already ended are the ones that cost
+        // money if nobody notices.
+        const strandedHolds = Array.from(state.requests.values()).filter((request) => {
+          if (request.billing?.state !== "held") {
+            return false;
+          }
+          return ["delivered", "failed", "timed_out"].includes(projectExecutionState(request));
+        });
+        if (strandedHolds.length > 0) {
+          items.push({
+            kind: "funds_held_after_end",
+            severity: "attention",
+            count: strandedHolds.length,
+            summary: `${strandedHolds.length} 笔资金在调用结束后仍处于冻结状态`,
+            targets: strandedHolds.slice(0, 20).map((request) => ({ type: "request", id: request.request_id, label: request.request_id }))
+          });
+        }
+
+        const unavailable = Array.from(state.responders.values())
+          .filter((responder) => (responder.hotline_ids || []).length > 0)
+          .map((responder) => ({ responder, availability: resolveCatalogAvailability(responder) }))
+          .filter((entry) => entry.availability !== "healthy");
+        if (unavailable.length > 0) {
+          items.push({
+            kind: "device_unavailable",
+            severity: "attention",
+            count: unavailable.length,
+            summary: `${unavailable.length} 台设备不可用（离线/降级/维护中）`,
+            targets: unavailable.slice(0, 20).map((entry) => ({
+              type: "responder",
+              id: entry.responder.responder_id,
+              label: entry.responder.display_name || entry.responder.responder_id,
+              availability_status: entry.availability
+            }))
+          });
+        }
+
+        sendJson(res, 200, {
+          generated_at: nowIso(),
+          // an empty list is a real answer, not a missing one
+          items,
+          nothing_to_do: items.length === 0,
+          not_tracked: [
+            { kind: "dispute_open", reason: "争议流程尚未实现（M3）" },
+            { kind: "acceptance_expiring", reason: "验收窗口尚未实现（M3）" }
+          ]
+        });
+        return;
+      }
+
+      // The whole story of one call, joined here rather than in the browser.
+      const adminRequestDetailMatch = pathname.match(/^\/v1\/admin\/requests\/([^/]+)$/);
+      if (method === "GET" && adminRequestDetailMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const request = state.requests.get(adminRequestDetailMatch[1]);
+        if (!request) {
+          sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
+          return;
+        }
+
+        const responder = request.responder_id ? state.responders.get(request.responder_id) : null;
+        const catalogItem = request.hotline_id ? state.catalog.get(request.hotline_id) : null;
+        const artifacts = Array.from(state.artifacts.values())
+          .filter((artifact) => artifact.request_id === request.request_id)
+          .map(artifactDescriptorOf);
+        const auditEvents = state.auditEvents.filter(
+          (event) => event.request_id === request.request_id || event.target_id === request.request_id
+        );
+
+        sendJson(res, 200, {
+          request_id: request.request_id,
+          caller_id: request.caller_id,
+          responder_id: request.responder_id,
+          hotline_id: request.hotline_id,
+          request_kind: request.request_kind || "remote_request",
+          state: buildCallStateAxes(request),
+          timeline: Array.isArray(request.events) ? request.events : [],
+          artifacts,
+          billing: request.billing
+            ? {
+                state: request.billing.state,
+                tenant_id: request.billing.tenant_id,
+                hold_amount_cents: request.billing.hold_amount_cents ?? null,
+                held_at: request.billing.held_at || null,
+                expires_at: request.billing.expires_at || null,
+                hold_ledger_id: request.billing.hold_ledger_id || null,
+                settled_amount_cents: request.billing.settled_amount_cents ?? null
+              }
+            : null,
+          responder: responder
+            ? {
+                responder_id: responder.responder_id,
+                display_name: responder.display_name || null,
+                availability_status: resolveCatalogAvailability(responder),
+                capacity: responder.capacity || null,
+                device_version: responder.device_version || null,
+                last_heartbeat_at: responder.last_heartbeat_at || null
+              }
+            : null,
+          hotline: catalogItem
+            ? {
+                hotline_id: catalogItem.hotline_id,
+                display_name: catalogItem.display_name || null,
+                status: catalogItem.status || null,
+                review_status: catalogItem.review_status || null,
+                catalog_visibility: resolveCatalogVisibility(state, catalogItem)
+              }
+            : null,
+          audit_events: auditEvents
+        });
         return;
       }
 
