@@ -459,11 +459,56 @@ function buildAvailability(lastHeartbeatAt) {
   return "healthy";
 }
 
+// A self-declared state a device holds until it says otherwise. Heartbeat
+// freshness must not silently promote a device out of maintenance back into
+// routing (FR-003/FR-006).
+const STICKY_AVAILABILITY = Object.freeze(["maintenance"]);
+const SELF_REPORTED_AVAILABILITY = Object.freeze(["healthy", "degraded", "offline", "maintenance"]);
+
 function resolveCatalogAvailability(item) {
+  if (STICKY_AVAILABILITY.includes(item.availability_status)) {
+    return item.availability_status;
+  }
+  const observed = buildAvailability(item.last_heartbeat_at);
+  // A stale heartbeat outranks a stale self-report: a device that claims
+  // healthy but stopped reporting is not healthy.
+  if (observed !== "healthy") {
+    return observed;
+  }
   if (item.availability_status && item.availability_status !== "healthy") {
     return item.availability_status;
   }
-  return buildAvailability(item.last_heartbeat_at);
+  return observed;
+}
+
+// Capacity as the device observes it. Unknown stays null rather than zero:
+// "no capacity reported" and "no capacity left" must not look the same.
+function normalizeCapacity(capacity) {
+  if (!capacity || typeof capacity !== "object") {
+    return null;
+  }
+  const toCount = (value) => (Number.isInteger(value) && value >= 0 ? value : null);
+  const normalized = {
+    max_concurrent: toCount(capacity.max_concurrent),
+    in_flight: toCount(capacity.in_flight),
+    accepting: capacity.accepting === undefined ? null : Boolean(capacity.accepting)
+  };
+  const hasAny = Object.values(normalized).some((value) => value !== null);
+  return hasAny ? normalized : null;
+}
+
+function normalizeDeviceVersion(version) {
+  if (!version || typeof version !== "object") {
+    return null;
+  }
+  const toText = (value) => (typeof value === "string" && value.trim() ? value.trim().slice(0, 120) : null);
+  const normalized = {
+    agent: toText(version.agent),
+    runtime: toText(version.runtime),
+    build: toText(version.build)
+  };
+  const hasAny = Object.values(normalized).some((value) => value !== null);
+  return hasAny ? normalized : null;
 }
 
 function pushCapped(array, value, limit = DEFAULT_TELEMETRY_HISTORY_LIMIT) {
@@ -1900,9 +1945,12 @@ function buildResponderAdminSummary(state, responder, catalogItems = []) {
     reviewed_at: responder.reviewed_at || null,
     reviewed_by: responder.reviewed_by || null,
     review_reason: responder.review_reason || null,
-    availability_status: responder.availability_status,
+    availability_status: resolveCatalogAvailability(responder),
+    reported_availability_status: responder.availability_status || null,
     queue_depth: responder.queue_depth ?? null,
     est_exec_p95_s: responder.est_exec_p95_s ?? null,
+    capacity: responder.capacity || null,
+    device_version: responder.device_version || null,
     last_heartbeat_at: responder.last_heartbeat_at,
     hotline_ids: responder.hotline_ids,
     hotline_count: catalogItems.length,
@@ -2702,8 +2750,11 @@ function submitCatalogHotline(state, body, auth = null, { allowUnauthenticatedCr
 }
 
 function registerResponderIdentity(state, body, auth = null) {
+  // FR-002: a device joins a single-Operator trust domain through a controlled
+  // credential, never by asserting a display name. The former
+  // allowUnauthenticatedCreate path let anyone enroll a responder.
   return submitCatalogHotline(state, body, auth, {
-    allowUnauthenticatedCreate: true
+    allowUnauthenticatedCreate: false
   });
 }
 
@@ -2860,8 +2911,11 @@ export function createPlatformServer({
 
       if (method === "POST" && pathname === "/v2/responders/register") {
         const body = await parseJsonBody(req);
-        const auth = resolveAuth(req, state);
-        if (auth && auth.type !== "caller" && auth.type !== "responder") {
+        const auth = requireAuth(req, res, state);
+        if (!auth) {
+          return;
+        }
+        if (auth.type !== "caller" && auth.type !== "responder") {
           sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only caller or responder callers may register");
           return;
         }
@@ -3482,26 +3536,42 @@ export function createPlatformServer({
           return;
         }
 
-        const heartbeatAt = nowIso();
-        responder.last_heartbeat_at = heartbeatAt;
-        responder.availability_status = body.status || "healthy";
-        if (body.queue_depth !== undefined) {
-          responder.queue_depth = Number(body.queue_depth);
-        }
-        if (body.est_exec_p95_s !== undefined) {
-          responder.est_exec_p95_s = Number(body.est_exec_p95_s);
+        const requestedStatus = body.status || "healthy";
+        if (!SELF_REPORTED_AVAILABILITY.includes(requestedStatus)) {
+          sendError(res, 400, "CONTRACT_INVALID_HEARTBEAT_STATUS", "status must be healthy, degraded, offline, or maintenance", {
+            retryable: false
+          });
+          return;
         }
 
+        const heartbeatAt = nowIso();
+        const capacity = normalizeCapacity(body.capacity);
+        const deviceVersion = normalizeDeviceVersion(body.version);
+
+        // FR-003: the control plane records the latest heartbeat, the device
+        // version and its current capacity. Absent fields keep their previous
+        // value rather than being cleared by a partial heartbeat.
+        const applyHeartbeat = (target) => {
+          target.last_heartbeat_at = heartbeatAt;
+          target.availability_status = requestedStatus;
+          if (body.queue_depth !== undefined) {
+            target.queue_depth = Number(body.queue_depth);
+          }
+          if (body.est_exec_p95_s !== undefined) {
+            target.est_exec_p95_s = Number(body.est_exec_p95_s);
+          }
+          if (capacity) {
+            target.capacity = capacity;
+          }
+          if (deviceVersion) {
+            target.device_version = deviceVersion;
+          }
+        };
+
+        applyHeartbeat(responder);
         for (const item of state.catalog.values()) {
           if (item.responder_id === responderId) {
-            item.last_heartbeat_at = heartbeatAt;
-            item.availability_status = body.status || "healthy";
-            if (body.queue_depth !== undefined) {
-              item.queue_depth = Number(body.queue_depth);
-            }
-            if (body.est_exec_p95_s !== undefined) {
-              item.est_exec_p95_s = Number(body.est_exec_p95_s);
-            }
+            applyHeartbeat(item);
           }
         }
         await persistPlatformState(onStateChanged, state);
@@ -3510,6 +3580,9 @@ export function createPlatformServer({
           accepted: true,
           responder_id: responderId,
           status: responder.availability_status,
+          availability_status: resolveCatalogAvailability(responder),
+          capacity: responder.capacity || null,
+          version: responder.device_version || null,
           heartbeat_interval_s: HEARTBEAT_INTERVAL_S,
           last_heartbeat_at: heartbeatAt
         });

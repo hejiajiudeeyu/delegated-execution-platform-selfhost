@@ -495,8 +495,15 @@ describe("platform-api integration", () => {
   });
 
   it("registers responder identities and filters catalog by capability", async () => {
+    // enrollment now requires a credential (FR-002); anonymous enrollment is
+    // covered by device-enrollment.integration.test.js
+    const owner = await jsonRequest(baseUrl, "/v1/users/register", {
+      method: "POST",
+      body: { contact_email: "legalworks-owner@test.local" }
+    });
     const registered = await jsonRequest(baseUrl, "/v2/responders/register", {
       method: "POST",
+      headers: { Authorization: `Bearer ${owner.body.api_key}` },
       body: {
         responder_id: "responder_legalworks",
         hotline_id: "legalworks.contract.extractor.v1",
