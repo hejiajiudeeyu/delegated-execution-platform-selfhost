@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlatformServer, createPlatformState } from "@delexec/platform-api";
 import { createRelayServer } from "@delexec/transport-relay";
 import { closeServer, jsonRequest, listenServer } from "../helpers/http.js";
-import { createRelayHttpTransportAdapter } from "../helpers/relay-http.js";
 
 describe("platform-api integration", () => {
   let server;
@@ -12,7 +11,7 @@ describe("platform-api integration", () => {
   let state;
 
   beforeAll(async () => {
-    state = createPlatformState();
+    state = createPlatformState({ bootstrapEnabled: true });
     server = createPlatformServer({ serviceName: "platform-api-test", state });
     baseUrl = await listenServer(server);
   });
@@ -68,7 +67,7 @@ describe("platform-api integration", () => {
 
     const template = await jsonRequest(
       baseUrl,
-      `/v2/hotlines/${selected.hotline_id}/template-bundle?template_ref=${encodeURIComponent(selected.template_ref)}`
+      `/marketplace/hotlines/${selected.hotline_id}/template-bundle?template_ref=${encodeURIComponent(selected.template_ref)}`
     );
     expect(template.status).toBe(200);
     expect(template.body.input_schema).toBeTypeOf("object");
@@ -101,7 +100,7 @@ describe("platform-api integration", () => {
     const responderAuth = {
       Authorization: `Bearer ${state.bootstrap.responders.find((item) => item.responder_id === target.responder_id).api_key}`
     };
-    const heartbeat = await jsonRequest(baseUrl, `/v2/responders/${target.responder_id}/heartbeat`, {
+    const heartbeat = await jsonRequest(baseUrl, `/v1/responders/${target.responder_id}/heartbeat`, {
       method: "POST",
       headers: responderAuth,
       body: { status: "degraded" }
@@ -388,35 +387,38 @@ describe("platform-api integration", () => {
   });
 
   it("returns inactive for expired token", async () => {
-    const register = await jsonRequest(baseUrl, "/v1/users/register", {
-      method: "POST",
-      body: { contact_email: "integration-expired@test.local" }
-    });
-    const auth = { Authorization: `Bearer ${register.body.api_key}` };
-
+    // Token TTL is bound at state creation, so the short-lived token needs its
+    // own server instead of mutating TOKEN_TTL_SECONDS under the shared one.
     const originalTtl = process.env.TOKEN_TTL_SECONDS;
     process.env.TOKEN_TTL_SECONDS = "1";
+    const shortTtlState = createPlatformState({ bootstrapEnabled: true, tokenTtlSeconds: 1 });
+    const shortTtlServer = createPlatformServer({ serviceName: "platform-expired-token-test", state: shortTtlState });
+    const shortTtlUrl = await listenServer(shortTtlServer);
 
     try {
-      const issue = await jsonRequest(baseUrl, "/v1/tokens/task", {
+      const register = await jsonRequest(shortTtlUrl, "/v1/users/register", {
+        method: "POST",
+        body: { contact_email: "integration-expired@test.local" }
+      });
+      const auth = { Authorization: `Bearer ${register.body.api_key}` };
+      const responder = shortTtlState.bootstrap.responders[0];
+
+      const issue = await jsonRequest(shortTtlUrl, "/v1/tokens/task", {
         method: "POST",
         headers: auth,
         body: {
           request_id: "req_expired_token_case",
-          responder_id: "responder_foxlab",
-          hotline_id: "foxlab.text.classifier.v1"
+          responder_id: responder.responder_id,
+          hotline_id: responder.hotline_id
         }
       });
       expect(issue.status).toBe(201);
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
 
-      const responderAuth = {
-        Authorization: `Bearer ${state.bootstrap.responders.find((item) => item.responder_id === "responder_foxlab").api_key}`
-      };
-      const introspect = await jsonRequest(baseUrl, "/v1/tokens/introspect", {
+      const introspect = await jsonRequest(shortTtlUrl, "/v1/tokens/introspect", {
         method: "POST",
-        headers: responderAuth,
+        headers: { Authorization: `Bearer ${responder.api_key}` },
         body: { task_token: issue.body.task_token }
       });
       expect(introspect.status).toBe(200);
@@ -428,6 +430,7 @@ describe("platform-api integration", () => {
       } else {
         process.env.TOKEN_TTL_SECONDS = originalTtl;
       }
+      await closeServer(shortTtlServer);
     }
   });
 
@@ -477,7 +480,7 @@ describe("platform-api integration", () => {
       { method: "GET", path: "/v1/metrics/summary" },
       { method: "POST", path: "/v1/requests/req_bad_1/ack", body: {} },
       { method: "GET", path: "/v1/requests/req_bad_1/events" },
-      { method: "POST", path: "/v2/responders/responder_foxlab/heartbeat", body: { status: "healthy" } }
+      { method: "POST", path: "/v1/responders/responder_starlight/heartbeat", body: { status: "healthy" } }
     ];
 
     for (const endpoint of endpoints) {
@@ -579,6 +582,10 @@ describe("platform-api integration", () => {
   });
 
   it("resolves a logical service to a healthy concrete hotline with token and delivery metadata", async () => {
+    // service_id registration and pooling only exist in self-host deployments.
+    const originalDeploymentMode = process.env.PLATFORM_DEPLOYMENT_MODE;
+    process.env.PLATFORM_DEPLOYMENT_MODE = "selfhost";
+    try {
     const caller = await jsonRequest(baseUrl, "/v1/users/register", {
       method: "POST",
       body: { contact_email: "service-resolve@test.local" }
@@ -641,6 +648,13 @@ describe("platform-api integration", () => {
     });
     expect(degraded.status).toBe(202);
 
+    const healthy = await jsonRequest(baseUrl, "/v1/responders/responder_mineru_b/heartbeat", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${second.body.api_key}` },
+      body: { status: "healthy" }
+    });
+    expect(healthy.status).toBe(202);
+
     const resolved = await jsonRequest(baseUrl, "/v1/service-resolutions", {
       method: "POST",
       headers: callerAuth,
@@ -682,6 +696,13 @@ describe("platform-api integration", () => {
       responder_id: "responder_mineru_b",
       hotline_id: "mineru.machine-b.parse.v1"
     });
+    } finally {
+      if (originalDeploymentMode === undefined) {
+        delete process.env.PLATFORM_DEPLOYMENT_MODE;
+      } else {
+        process.env.PLATFORM_DEPLOYMENT_MODE = originalDeploymentMode;
+      }
+    }
   });
 
   it("returns a structured error when no service resolution candidate is available", async () => {
@@ -865,52 +886,33 @@ describe("platform-api integration", () => {
     const publicDetailBeforeApproval = await jsonRequest(baseUrl, "/v2/hotlines/review.probe.v1");
     expect(publicDetailBeforeApproval.status).toBe(404);
 
-    const ownerDetail = await jsonRequest(baseUrl, "/v2/hotlines/review.probe.v1", {
+    const ownerDetail = await jsonRequest(baseUrl, "/v1/catalog/hotlines/review.probe.v1", {
       headers: callerAuth
     });
     expect(ownerDetail.status).toBe(200);
     expect(ownerDetail.body.submission.submission_version).toBe(1);
     expect(ownerDetail.body.catalog_visibility).toBe("hidden");
 
-    const responderServer = createResponderControllerServer({
-      serviceName: "platform-review-responder-test",
-      state: createResponderState({
-        responderId: "responder_review_probe",
-        hotlineIds: ["review.probe.v1"],
-        signing: state.bootstrap.responders[0].signing
-      }),
-      transport: createRelayHttpTransportAdapter({
-        baseUrl: relayUrl,
-        receiver: "responder_review_probe"
-      }),
-      platform: {
-        baseUrl,
-        apiKey: onboarding.body.responder_api_key,
-        responderId: "responder_review_probe"
-      },
-      background: {
-        enabled: true,
-        receiver: "responder_review_probe",
-        inboxPollIntervalMs: 20
-      }
-    });
-    await listenServer(responderServer);
-
+    // The responder runtime moved to the client repository with the repo
+    // split, so no live responder answers here: the hidden review test is
+    // asserted through its timeout path. The pass-verdict loop is covered by
+    // the cross-repo e2e suite.
     try {
-      const reviewTest = await jsonRequest(baseUrl, "/v2/admin/hotlines/review.probe.v1/review-tests", {
+      const reviewTest = await jsonRequest(baseUrl, "/v1/admin/hotlines/review.probe.v1/review-tests", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${state.adminApiKey}`
         },
         body: {
           task_input: { text: "review this task" },
-          constraints: { hard_timeout_s: 2 }
+          constraints: { hard_timeout_s: 2 },
+          timeout_ms: 1500
         }
       });
       expect(reviewTest.status).toBe(202);
 
       let reviewResult;
-      for (let attempt = 0; attempt < 50; attempt += 1) {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
         reviewResult = await jsonRequest(baseUrl, `/v1/admin/review-tests/${reviewTest.body.request_id}`, {
           headers: {
             Authorization: `Bearer ${state.adminApiKey}`
@@ -919,10 +921,11 @@ describe("platform-api integration", () => {
         if (reviewResult.status === 200 && reviewResult.body.finished_at) {
           break;
         }
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
       expect(reviewResult.status).toBe(200);
-      expect(reviewResult.body.verdict).toBe("pass");
+      expect(reviewResult.body.verdict).toBe("fail");
+      expect(reviewResult.body.failure_code).toBe("EXEC_TIMEOUT");
       expect(reviewResult.body.request.request_kind).toBe("review_test");
       expect(reviewResult.body.request.request_visibility).toBe("hidden");
 
@@ -932,17 +935,16 @@ describe("platform-api integration", () => {
         }
       });
       expect(reviewTestList.status).toBe(200);
-      expect(reviewTestList.body.items[0].verdict).toBe("pass");
+      expect(reviewTestList.body.items[0].verdict).toBe("fail");
 
-      const adminHotlineDetail = await jsonRequest(baseUrl, "/v2/hotlines/review.probe.v1", {
+      const adminHotlineDetail = await jsonRequest(baseUrl, "/v1/catalog/hotlines/review.probe.v1", {
         headers: {
           Authorization: `Bearer ${state.adminApiKey}`
         }
       });
       expect(adminHotlineDetail.status).toBe(200);
-      expect(adminHotlineDetail.body.latest_review_test.verdict).toBe("pass");
+      expect(adminHotlineDetail.body.latest_review_test.verdict).toBe("fail");
     } finally {
-      await closeServer(responderServer);
       await closeServer(relayServer);
       if (previousReviewTransportBaseUrl === undefined) {
         delete process.env.REVIEW_TRANSPORT_BASE_URL;
@@ -963,14 +965,15 @@ describe("platform-api integration", () => {
     const adminAuth = {
       Authorization: `Bearer ${state.adminApiKey}`
     };
+    const responder = state.bootstrap.responders[0];
 
     const token = await jsonRequest(baseUrl, "/v1/tokens/task", {
       method: "POST",
       headers: callerAuth,
       body: {
         request_id: "req_admin_view_1",
-        responder_id: "responder_foxlab",
-        hotline_id: "foxlab.text.classifier.v1"
+        responder_id: responder.responder_id,
+        hotline_id: responder.hotline_id
       }
     });
     expect(token.status).toBe(201);
@@ -984,13 +987,13 @@ describe("platform-api integration", () => {
       headers: adminAuth
     });
     expect(responders.status).toBe(200);
-    expect(responders.body.items.some((item) => item.responder_id === "responder_foxlab")).toBe(true);
+    expect(responders.body.items.some((item) => item.responder_id === responder.responder_id)).toBe(true);
 
     const hotlines = await jsonRequest(baseUrl, "/v2/admin/hotlines", {
       headers: adminAuth
     });
     expect(hotlines.status).toBe(200);
-    expect(hotlines.body.items.some((item) => item.hotline_id === "foxlab.text.classifier.v1")).toBe(true);
+    expect(hotlines.body.items.some((item) => item.hotline_id === responder.hotline_id)).toBe(true);
 
     const requests = await jsonRequest(baseUrl, "/v1/admin/requests", {
       headers: adminAuth
@@ -1013,54 +1016,54 @@ describe("platform-api integration", () => {
     });
     expect(delegated.status).toBe(200);
 
-    const disableHotline = await jsonRequest(baseUrl, "/v2/admin/hotlines/foxlab.text.classifier.v1/disable", {
+    const disableHotline = await jsonRequest(baseUrl, `/v2/admin/hotlines/${responder.hotline_id}/disable`, {
       method: "POST",
       headers: adminAuth,
       body: { reason: "quality regression" }
     });
     expect(disableHotline.status).toBe(200);
-    expect(state.catalog.get("foxlab.text.classifier.v1").status).toBe("disabled");
+    expect(state.catalog.get(responder.hotline_id).status).toBe("disabled");
 
-    const approveHotline = await jsonRequest(baseUrl, "/v2/admin/hotlines/foxlab.text.classifier.v1/approve", {
+    const approveHotline = await jsonRequest(baseUrl, `/v2/admin/hotlines/${responder.hotline_id}/approve`, {
       method: "POST",
       headers: adminAuth
     });
     expect(approveHotline.status).toBe(200);
-    expect(state.catalog.get("foxlab.text.classifier.v1").status).toBe("enabled");
+    expect(state.catalog.get(responder.hotline_id).status).toBe("enabled");
 
-    const disableResponder = await jsonRequest(baseUrl, "/v2/admin/responders/responder_foxlab/disable", {
+    const disableResponder = await jsonRequest(baseUrl, `/v2/admin/responders/${responder.responder_id}/disable`, {
       method: "POST",
       headers: adminAuth,
       body: { reason: "maintenance window" }
     });
     expect(disableResponder.status).toBe(200);
-    expect(state.responders.get("responder_foxlab").status).toBe("disabled");
-    expect(state.catalog.get("foxlab.text.classifier.v1").status).toBe("enabled");
+    expect(state.responders.get(responder.responder_id).status).toBe("disabled");
+    expect(state.catalog.get(responder.hotline_id).status).toBe("enabled");
 
-    const approveResponder = await jsonRequest(baseUrl, "/v2/admin/responders/responder_foxlab/approve", {
+    const approveResponder = await jsonRequest(baseUrl, `/v2/admin/responders/${responder.responder_id}/approve`, {
       method: "POST",
       headers: adminAuth,
       body: { reason: "maintenance complete" }
     });
     expect(approveResponder.status).toBe(200);
-    expect(state.responders.get("responder_foxlab").status).toBe("enabled");
-    expect(state.catalog.get("foxlab.text.classifier.v1").status).toBe("enabled");
+    expect(state.responders.get(responder.responder_id).status).toBe("enabled");
+    expect(state.catalog.get(responder.hotline_id).status).toBe("enabled");
 
-    const rejectHotline = await jsonRequest(baseUrl, "/v2/admin/hotlines/foxlab.text.classifier.v1/reject", {
+    const rejectHotline = await jsonRequest(baseUrl, `/v2/admin/hotlines/${responder.hotline_id}/reject`, {
       method: "POST",
       headers: adminAuth,
       body: { reason: "schema issues" }
     });
     expect(rejectHotline.status).toBe(200);
-    expect(state.catalog.get("foxlab.text.classifier.v1").status).toBe("disabled");
+    expect(state.catalog.get(responder.hotline_id).status).toBe("disabled");
 
-    const reapproveHotline = await jsonRequest(baseUrl, "/v2/admin/hotlines/foxlab.text.classifier.v1/approve", {
+    const reapproveHotline = await jsonRequest(baseUrl, `/v2/admin/hotlines/${responder.hotline_id}/approve`, {
       method: "POST",
       headers: adminAuth,
       body: { reason: "schema fixed" }
     });
     expect(reapproveHotline.status).toBe(200);
-    expect(state.catalog.get("foxlab.text.classifier.v1").status).toBe("enabled");
+    expect(state.catalog.get(responder.hotline_id).status).toBe("enabled");
 
     const audit = await jsonRequest(baseUrl, "/v1/admin/audit-events?limit=10", {
       headers: adminAuth
@@ -1071,18 +1074,18 @@ describe("platform-api integration", () => {
     expect(audit.body.items.some((item) => item.action === "hotline.disabled" && item.reason === "quality regression")).toBe(true);
     expect(audit.body.items.some((item) => item.action === "hotline.rejected" && item.reason === "schema issues")).toBe(true);
 
-    const filteredResponders = await jsonRequest(baseUrl, "/v2/admin/responders?q=foxlab&limit=1", {
+    const filteredResponders = await jsonRequest(baseUrl, `/v2/admin/responders?q=${responder.responder_id}&limit=1`, {
       headers: adminAuth
     });
     expect(filteredResponders.status).toBe(200);
     expect(filteredResponders.body.items).toHaveLength(1);
     expect(filteredResponders.body.pagination.total).toBeGreaterThanOrEqual(1);
 
-    const filteredHotlines = await jsonRequest(baseUrl, "/v2/admin/hotlines?responder_id=responder_foxlab&status=enabled", {
+    const filteredHotlines = await jsonRequest(baseUrl, `/v2/admin/hotlines?responder_id=${responder.responder_id}&status=enabled`, {
       headers: adminAuth
     });
     expect(filteredHotlines.status).toBe(200);
-    expect(filteredHotlines.body.items.every((item) => item.responder_id === "responder_foxlab")).toBe(true);
+    expect(filteredHotlines.body.items.every((item) => item.responder_id === responder.responder_id)).toBe(true);
     expect(filteredHotlines.body.items.some((item) => item.review_status === "approved")).toBe(true);
 
     const filteredRequests = await jsonRequest(baseUrl, "/v1/admin/requests?caller_id=" + caller.body.user_id, {
@@ -1101,7 +1104,7 @@ describe("platform-api integration", () => {
       headers: adminAuth
     });
     expect(reviews.status).toBe(200);
-    expect(reviews.body.items.some((item) => item.target_id === "foxlab.text.classifier.v1")).toBe(true);
+    expect(reviews.body.items.some((item) => item.target_id === responder.hotline_id)).toBe(true);
   });
   it("supports batched request event reads", async () => {
     const caller = await jsonRequest(baseUrl, "/v1/users/register", {
@@ -1219,7 +1222,7 @@ describe("platform-api integration", () => {
     });
     expect(issued.status).toBe(201);
 
-    const rotateResponder = await jsonRequest(baseUrl, `/v2/admin/responders/${responder.responder_id}/api-keys/rotate`, {
+    const rotateResponder = await jsonRequest(baseUrl, `/v1/admin/responders/${responder.responder_id}/api-keys/rotate`, {
       method: "POST",
       headers: adminAuth,
       body: {}
@@ -1252,7 +1255,7 @@ describe("platform-api integration", () => {
 
     const nextSigningPair = crypto.generateKeyPairSync("ed25519");
     const nextPublicKeyPem = nextSigningPair.publicKey.export({ type: "spki", format: "pem" }).toString();
-    const rotateSigning = await jsonRequest(baseUrl, `/v2/admin/responders/${responder.responder_id}/signing-keys/rotate`, {
+    const rotateSigning = await jsonRequest(baseUrl, `/v1/admin/responders/${responder.responder_id}/signing-keys/rotate`, {
       method: "POST",
       headers: adminAuth,
       body: {
@@ -1292,7 +1295,8 @@ describe("platform-api integration", () => {
     const secret = "integration-stable-token-secret";
     const firstState = createPlatformState({
       tokenSecret: secret,
-      adminApiKey: "sk_admin_first_state"
+      adminApiKey: "sk_admin_first_state",
+      bootstrapEnabled: true
     });
     const firstServer = createPlatformServer({
       serviceName: "platform-token-secret-first",
@@ -1321,7 +1325,8 @@ describe("platform-api integration", () => {
 
       const secondState = createPlatformState({
         tokenSecret: secret,
-        adminApiKey: "sk_admin_second_state"
+        adminApiKey: "sk_admin_second_state",
+        bootstrapEnabled: true
       });
       const secondServer = createPlatformServer({
         serviceName: "platform-token-secret-second",
