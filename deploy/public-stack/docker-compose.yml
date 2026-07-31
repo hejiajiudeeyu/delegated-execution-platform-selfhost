@@ -45,6 +45,8 @@ services:
       TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
       REVIEW_TRANSPORT_BASE_URL: http://relay:${RELAY_PORT:-8090}
       RELAY_ADMIN_TOKEN: ${RELAY_ADMIN_TOKEN:?RELAY_ADMIN_TOKEN must be set; platform-api authenticates to the relay}
+      ARTIFACT_STORE_PATH: /data/artifacts
+      ARTIFACT_MAX_BYTES: ${ARTIFACT_MAX_BYTES:-67108864}
       ENABLE_BOOTSTRAP_RESPONDERS: ${ENABLE_BOOTSTRAP_RESPONDERS:-false}
       BOOTSTRAP_RESPONDER_ID: ${BOOTSTRAP_RESPONDER_ID:-}
       BOOTSTRAP_HOTLINE_ID: ${BOOTSTRAP_HOTLINE_ID:-}
@@ -52,6 +54,8 @@ services:
       BOOTSTRAP_RESPONDER_API_KEY: ${BOOTSTRAP_RESPONDER_API_KEY:-}
       BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM: ${BOOTSTRAP_RESPONDER_PUBLIC_KEY_PEM:-}
       BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM: ${BOOTSTRAP_RESPONDER_PRIVATE_KEY_PEM:-}
+    volumes:
+      - public-stack-artifact-data:/data/artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,6 +100,7 @@ services:
 
 volumes:
   public-stack-postgres-data:
+  public-stack-artifact-data:
   public-stack-relay-data:
   public-stack-gateway-data:
   public-stack-caddy-data:

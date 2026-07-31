@@ -1,0 +1,16 @@
+{
+  "name": "@delexec/artifact-store",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Artifact byte storage for delegated execution platform services",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "Apache-2.0"
+}

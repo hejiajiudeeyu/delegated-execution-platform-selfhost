@@ -5,6 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  ARTIFACT_LIFECYCLE,
+  ARTIFACT_ROLE,
   BILLING_ERROR_CODE,
   BILLING_EVENT,
   PRICING_MODEL,
@@ -15,9 +17,11 @@ import {
   validateCatalogGuidanceFields,
   validatePricingHint,
   validateResponderTrustTier,
+  validateArtifactDescriptor,
   validateServiceResolutionRequest,
   validateTaskBillingClaims
 } from "@delexec/contracts";
+import { createFilesystemArtifactStore, createMemoryArtifactStore, checksumOf } from "@delexec/artifact-store";
 import { buildInfoPayload, readPackageVersion } from "@delexec/build-info";
 import { createBillingStore } from "@delexec/billing-store";
 import { createPostgresSnapshotStore } from "@delexec/postgres-store";
@@ -1648,6 +1652,9 @@ export function createPlatformState(options = {}) {
   const requests = new Map();
   const submissions = new Map();
   const reviewTests = new Map();
+  // Artifact metadata and lifecycle. Bytes live in the artifact store; this map
+  // holds only what the protocol descriptor carries (A-01).
+  const artifacts = new Map();
   const metricsEvents = [];
   const auditEvents = [];
   const reviewEvents = [];
@@ -1688,6 +1695,7 @@ export function createPlatformState(options = {}) {
     requests,
     submissions,
     reviewTests,
+    artifacts,
     metricsEvents,
     auditEvents,
     reviewEvents,
@@ -1713,6 +1721,7 @@ export function serializePlatformState(state) {
     requests: Array.from(state.requests.entries()),
     submissions: Array.from(state.submissions.entries()),
     reviewTests: Array.from(state.reviewTests.entries()),
+    artifacts: Array.from(state.artifacts.entries()),
     metricsEvents: state.metricsEvents,
     auditEvents: state.auditEvents,
     reviewEvents: state.reviewEvents
@@ -1732,7 +1741,8 @@ export function hydratePlatformState(state, snapshot) {
     ["templates", state.templates],
     ["requests", state.requests],
     ["submissions", state.submissions],
-    ["reviewTests", state.reviewTests]
+    ["reviewTests", state.reviewTests],
+    ["artifacts", state.artifacts]
   ]) {
     collection.clear();
     for (const [key, value] of snapshot[name] || []) {
@@ -2758,11 +2768,82 @@ function registerResponderIdentity(state, body, auth = null) {
   });
 }
 
+
+// ---------------------------------------------------------------- artifacts
+//
+// The Platform owns artifact metadata and authorization; the bytes live in the
+// artifact store (A-01). A scoped grant addresses exactly one artifact in one
+// direction and expires, so possession of a grant never widens into access to
+// anything else — and no bucket key or presigned URL ever reaches a client.
+
+const ARTIFACT_GRANT_TTL_S = 900;
+const ARTIFACT_MAX_BYTES = Number(process.env.ARTIFACT_MAX_BYTES || 64 * 1024 * 1024);
+
+function issueArtifactGrant(state, { artifactId, mode, ttlSeconds = ARTIFACT_GRANT_TTL_S }) {
+  const expiresAt = Math.floor(Date.now() / 1000) + ttlSeconds;
+  return {
+    grant: signToken(state.tokenSecret, { art: artifactId, mode, exp: expiresAt }),
+    expires_at: new Date(expiresAt * 1000).toISOString()
+  };
+}
+
+function resolveArtifactGrant(state, req, { artifactId, mode }) {
+  const header = req.headers.authorization || "";
+  const match = header.match(/^Bearer\s+(.+)$/i);
+  if (!match) {
+    return { error: { status: 401, code: "AUTH_UNAUTHORIZED", message: "an artifact grant is required" } };
+  }
+  const parsed = parseToken(state.tokenSecret, match[1].trim());
+  if (!parsed.valid) {
+    return { error: { status: 401, code: parsed.error?.code || "AUTH_TOKEN_INVALID", message: "artifact grant is not valid" } };
+  }
+  if (parsed.claims.art !== artifactId || parsed.claims.mode !== mode) {
+    // A grant for another artifact, or for the other direction, is not a
+    // weaker credential — it is the wrong one.
+    return { error: { status: 403, code: "AUTH_SCOPE_FORBIDDEN", message: "artifact grant is not scoped to this operation" } };
+  }
+  return { claims: parsed.claims };
+}
+
+function artifactDescriptorOf(artifact) {
+  return {
+    artifact_id: artifact.artifact_id,
+    role: artifact.role,
+    media_type: artifact.media_type,
+    size_bytes: artifact.size_bytes,
+    checksum: artifact.checksum,
+    lifecycle_state: artifact.lifecycle_state,
+    expires_at: artifact.expires_at,
+    request_id: artifact.request_id
+  };
+}
+
+// Only the two parties bound to a request may touch its artifacts.
+function canAccessRequestArtifacts(state, auth, request) {
+  if (!auth || !request) {
+    return false;
+  }
+  if (isOperatorAuth(auth, state)) {
+    return true;
+  }
+  if (auth.type === "caller") {
+    return request.caller_id === auth.user_id;
+  }
+  if (auth.type === "responder") {
+    return request.responder_id === auth.responder_id;
+  }
+  return false;
+}
+
 export function createPlatformServer({
   state = createPlatformState(),
   serviceName = "platform-api",
-  onStateChanged = null
+  onStateChanged = null,
+  artifactStore = null
 } = {}) {
+  // Bytes go to the configured store; in-memory keeps tests and local runs
+  // working without provisioning storage.
+  const artifacts = artifactStore || createMemoryArtifactStore();
   const rateLimiter = createRateLimiter();
   const metricsBearerToken = process.env.PROMETHEUS_METRICS_BEARER_TOKEN || null;
 
@@ -3518,6 +3599,226 @@ export function createPlatformServer({
           await persistPlatformState(onStateChanged, state);
         }
         sendJson(res, 200, { items });
+        return;
+      }
+
+      // Allocate a scoped upload slot for one artifact of one request (FR-032).
+      const artifactAllocateMatch = pathname.match(/^\/v1\/requests\/([^/]+)\/artifacts$/);
+      if (method === "POST" && artifactAllocateMatch) {
+        const auth = requireAuth(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const requestId = artifactAllocateMatch[1];
+        const request = state.requests.get(requestId);
+        if (!request) {
+          sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
+          return;
+        }
+        if (!canAccessRequestArtifacts(state, auth, request)) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "not a party to this request");
+          return;
+        }
+
+        const body = await parseJsonBody(req);
+        if (!Object.values(ARTIFACT_ROLE).includes(body.role)) {
+          sendError(res, 400, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "role must be input, output, or evidence");
+          return;
+        }
+        if (!body.media_type) {
+          sendError(res, 400, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "media_type is required");
+          return;
+        }
+
+        const artifactId = `art_${crypto.randomUUID().replace(/-/g, "")}`;
+        const grant = issueArtifactGrant(state, { artifactId, mode: "upload" });
+        const artifact = {
+          artifact_id: artifactId,
+          request_id: requestId,
+          role: body.role,
+          media_type: String(body.media_type),
+          size_bytes: 0,
+          checksum: null,
+          lifecycle_state: ARTIFACT_LIFECYCLE.ALLOCATED,
+          expires_at: grant.expires_at,
+          created_at: nowIso()
+        };
+        state.artifacts.set(artifactId, artifact);
+        appendRequestEvent(request, "ARTIFACT_ALLOCATED", { actor_type: auth.type, artifact_id: artifactId, role: body.role });
+        await persistPlatformState(onStateChanged, state);
+
+        sendJson(res, 201, {
+          ...artifactDescriptorOf(artifact),
+          upload_grant: grant.grant,
+          upload_expires_at: grant.expires_at,
+          max_bytes: ARTIFACT_MAX_BYTES
+        });
+        return;
+      }
+
+      const artifactContentMatch = pathname.match(/^\/v1\/artifacts\/([^/]+)\/content$/);
+      if (method === "PUT" && artifactContentMatch) {
+        const artifactId = artifactContentMatch[1];
+        const grant = resolveArtifactGrant(state, req, { artifactId, mode: "upload" });
+        if (grant.error) {
+          sendError(res, grant.error.status, grant.error.code, grant.error.message);
+          return;
+        }
+        const artifact = state.artifacts.get(artifactId);
+        if (!artifact) {
+          sendError(res, 404, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "no artifact found with this id");
+          return;
+        }
+        if (artifact.lifecycle_state !== ARTIFACT_LIFECYCLE.ALLOCATED) {
+          // Committed bytes are immutable: rewriting them would invalidate a
+          // checksum something else already trusted.
+          sendError(res, 409, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "artifact bytes are already committed");
+          return;
+        }
+
+        const chunks = [];
+        let total = 0;
+        let tooLarge = false;
+        for await (const chunk of req) {
+          total += chunk.length;
+          if (total > ARTIFACT_MAX_BYTES) {
+            tooLarge = true;
+            break;
+          }
+          chunks.push(chunk);
+        }
+        if (tooLarge) {
+          sendError(res, 413, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "artifact exceeds the configured size limit");
+          return;
+        }
+
+        const buffer = Buffer.concat(chunks);
+        const stored = await artifacts.put(artifactId, buffer);
+        artifact.size_bytes = stored.size_bytes;
+        artifact.observed_checksum = stored.checksum;
+        await persistPlatformState(onStateChanged, state);
+
+        sendJson(res, 200, {
+          artifact_id: artifactId,
+          size_bytes: stored.size_bytes,
+          checksum: { algorithm: "sha256", value: stored.checksum },
+          lifecycle_state: artifact.lifecycle_state
+        });
+        return;
+      }
+
+      // Commit binds the uploaded bytes to a checksum the sender claims.
+      const artifactCommitMatch = pathname.match(/^\/v1\/artifacts\/([^/]+)\/commit$/);
+      if (method === "POST" && artifactCommitMatch) {
+        const artifactId = artifactCommitMatch[1];
+        const grant = resolveArtifactGrant(state, req, { artifactId, mode: "upload" });
+        if (grant.error) {
+          sendError(res, grant.error.status, grant.error.code, grant.error.message);
+          return;
+        }
+        const artifact = state.artifacts.get(artifactId);
+        if (!artifact) {
+          sendError(res, 404, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "no artifact found with this id");
+          return;
+        }
+        if (!artifact.observed_checksum) {
+          sendError(res, 409, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "artifact has no uploaded bytes to commit");
+          return;
+        }
+
+        const body = await parseJsonBody(req);
+        const claimed = body.checksum;
+        if (!claimed || claimed.algorithm !== "sha256" || !claimed.value) {
+          sendError(res, 400, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "checksum.algorithm sha256 and checksum.value are required");
+          return;
+        }
+        if (claimed.value !== artifact.observed_checksum) {
+          // NFR-R03: a mismatch never becomes a delivered artifact.
+          sendError(res, 409, "CONTRACT_ARTIFACT_CHECKSUM_MISMATCH", "uploaded bytes do not match the claimed checksum", {
+            retryable: false
+          });
+          return;
+        }
+
+        artifact.checksum = { algorithm: "sha256", value: artifact.observed_checksum };
+        artifact.lifecycle_state = ARTIFACT_LIFECYCLE.COMMITTED;
+        artifact.committed_at = nowIso();
+
+        const descriptor = artifactDescriptorOf(artifact);
+        const validation = validateArtifactDescriptor(descriptor);
+        if (!validation.valid) {
+          sendError(res, 500, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", validation.errors.join("; "));
+          return;
+        }
+
+        const request = state.requests.get(artifact.request_id);
+        if (request) {
+          appendRequestEvent(request, "ARTIFACT_COMMITTED", { actor_type: "system", artifact_id: artifactId });
+        }
+        await persistPlatformState(onStateChanged, state);
+        sendJson(res, 200, descriptor);
+        return;
+      }
+
+      // Download is authorized either by a scoped grant or by being a party to
+      // the request; the descriptor alone never yields bytes.
+      if (method === "GET" && artifactContentMatch) {
+        const artifactId = artifactContentMatch[1];
+        const artifact = state.artifacts.get(artifactId);
+        if (!artifact) {
+          sendError(res, 404, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "no artifact found with this id");
+          return;
+        }
+        const grant = resolveArtifactGrant(state, req, { artifactId, mode: "download" });
+        if (grant.error) {
+          const auth = resolveAuth(req, state);
+          const request = state.requests.get(artifact.request_id);
+          if (!canAccessRequestArtifacts(state, auth, request)) {
+            sendError(res, grant.error.status, grant.error.code, grant.error.message);
+            return;
+          }
+        }
+        if (artifact.lifecycle_state !== ARTIFACT_LIFECYCLE.COMMITTED) {
+          sendError(res, 409, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "artifact is not committed");
+          return;
+        }
+        const buffer = await artifacts.get(artifactId);
+        if (!buffer) {
+          sendError(res, 410, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "artifact bytes are no longer available");
+          return;
+        }
+        res.writeHead(200, {
+          "content-type": artifact.media_type,
+          "content-length": String(buffer.length),
+          "x-artifact-checksum": artifact.checksum.value
+        });
+        res.end(buffer);
+        return;
+      }
+
+      // Metadata only, and a download grant for a party to the request.
+      const artifactDetailMatch = pathname.match(/^\/v1\/artifacts\/([^/]+)$/);
+      if (method === "GET" && artifactDetailMatch) {
+        const auth = requireAuth(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const artifact = state.artifacts.get(artifactDetailMatch[1]);
+        if (!artifact) {
+          sendError(res, 404, "CONTRACT_ARTIFACT_DESCRIPTOR_INVALID", "no artifact found with this id");
+          return;
+        }
+        const request = state.requests.get(artifact.request_id);
+        if (!canAccessRequestArtifacts(state, auth, request)) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "not a party to this request");
+          return;
+        }
+        const grant = issueArtifactGrant(state, { artifactId: artifact.artifact_id, mode: "download" });
+        sendJson(res, 200, {
+          ...artifactDescriptorOf(artifact),
+          download_grant: grant.grant,
+          download_expires_at: grant.expires_at
+        });
         return;
       }
 
@@ -4514,9 +4815,19 @@ if (isDirectRun()) {
   if (persistence) {
     hydratePlatformState(state, await persistence.loadSnapshot());
   }
+  // Artifact bytes: a configured directory survives restarts, which the
+  // in-memory default does not. An S3/MinIO backend swaps in here (A-01)
+  // without any other code changing.
+  const artifactRoot = process.env.ARTIFACT_STORE_PATH || null;
+  if (!artifactRoot) {
+    console.warn(
+      `[${serviceName}] ARTIFACT_STORE_PATH is not set; artifact bytes are kept in memory and lost on restart`
+    );
+  }
   const server = createPlatformServer({
     serviceName,
     state,
+    artifactStore: artifactRoot ? createFilesystemArtifactStore({ root: artifactRoot }) : undefined,
     onStateChanged: persistence
       ? async (currentState) => {
           await persistence.saveSnapshot(serializePlatformState(currentState));
