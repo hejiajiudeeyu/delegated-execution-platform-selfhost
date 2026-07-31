@@ -18,11 +18,14 @@ import {
   validateServiceResolutionRequest,
   validateTaskBillingClaims
 } from "@delexec/contracts";
+import { buildInfoPayload, readPackageVersion } from "@delexec/build-info";
 import { createBillingStore } from "@delexec/billing-store";
 import { createPostgresSnapshotStore } from "@delexec/postgres-store";
 import { createSqliteSnapshotStore } from "@delexec/sqlite-store";
 import { buildOpsEnvSearchPaths, loadEnvFiles } from "@delexec/runtime-utils";
 import { createRelayHttpTransportAdapter } from "./relay-http.js";
+
+const PLATFORM_API_VERSION = readPackageVersion(import.meta.url);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2820,6 +2823,14 @@ export function createPlatformServer({
 
       if (method === "GET" && pathname === "/readyz") {
         sendJson(res, 200, { ready: true, service: serviceName });
+        return;
+      }
+
+      // Observed build facts for workspace drift checking (FR-082 / A-09).
+      // Public on purpose: it reports only what is already implied by the
+      // published image tag, and the workspace must be able to probe it.
+      if (method === "GET" && pathname === "/buildz") {
+        sendJson(res, 200, buildInfoPayload({ component: "platform-api", version: PLATFORM_API_VERSION }));
         return;
       }
 

@@ -48,6 +48,17 @@ RUN if find .docker-local-packages -maxdepth 1 -name "*.tgz" -print -quit | grep
     npm install --omit=dev --package-lock=false ./.docker-local-packages/*.tgz; \
   fi
 
+# Observed build facts (FR-082): injected at image build so a running service
+# can report what it actually is, instead of the workspace inferring it.
+ARG DELEXEC_BUILD_GIT_SHA=""
+ARG DELEXEC_BUILD_AT=""
+ARG DELEXEC_RELEASE_ID=""
+ARG DELEXEC_RELEASE_MANIFEST_SHA256=""
+
 ENV NODE_ENV=production
+ENV DELEXEC_BUILD_GIT_SHA=${DELEXEC_BUILD_GIT_SHA}
+ENV DELEXEC_BUILD_AT=${DELEXEC_BUILD_AT}
+ENV DELEXEC_RELEASE_ID=${DELEXEC_RELEASE_ID}
+ENV DELEXEC_RELEASE_MANIFEST_SHA256=${DELEXEC_RELEASE_MANIFEST_SHA256}
 WORKDIR /app/${APP_PATH}
 CMD ["npm", "start"]

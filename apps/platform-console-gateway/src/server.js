@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { buildInfoPayload, readPackageVersion } from "@delexec/build-info";
 import { buildStructuredError } from "@delexec/contracts";
 import {
   OPS_SECRET_KEYS,
@@ -23,6 +24,7 @@ const SESSION_TTL_MS = 8 * 60 * 60 * 1000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PLATFORM_CONSOLE_ROOT = path.resolve(__dirname, "../../platform-console");
+const GATEWAY_VERSION = readPackageVersion(import.meta.url);
 // the console is a built SPA: serve the vite dist output (fingerprinted assets)
 const STATIC_ROOT = path.resolve(PLATFORM_CONSOLE_ROOT, "dist");
 const STATIC_MIME_TYPES = {
@@ -217,6 +219,23 @@ function resolveStaticPath(pathname) {
   return null;
 }
 
+// Fingerprint of the console bundle this gateway actually serves. Vite names
+// the entry `assets/index-<hash>.js`, so the served index.html carries the
+// fingerprint; falling back to a hash of index.html keeps the value useful if
+// the naming scheme ever changes. Null when no build is present.
+async function readConsoleAssetHash() {
+  try {
+    const indexHtml = await fs.readFile(path.join(STATIC_ROOT, "index.html"), "utf8");
+    const entry = indexHtml.match(/assets\/(index-[A-Za-z0-9_-]+\.js)/);
+    if (entry) {
+      return entry[1];
+    }
+    return `sha256:${crypto.createHash("sha256").update(indexHtml).digest("hex").slice(0, 32)}`;
+  } catch {
+    return null;
+  }
+}
+
 async function serveStaticConsole(req, res, pathname) {
   if (!["GET", "HEAD"].includes(req.method || "GET")) {
     return false;
@@ -397,6 +416,22 @@ export function createPlatformConsoleGatewayServer() {
 
       if (method === "GET" && pathname === "/healthz") {
         sendJson(res, 200, { ok: true, service: "platform-console-gateway" });
+        return;
+      }
+
+      // Observed build facts for workspace drift checking (FR-082 / A-09).
+      // console_asset_hash is the deployed-frontend fingerprint: it is derived
+      // from the served bundle, so a stale image cannot report a fresh one.
+      if (method === "GET" && pathname === "/buildz") {
+        sendJson(
+          res,
+          200,
+          buildInfoPayload({
+            component: "platform-console-gateway",
+            version: GATEWAY_VERSION,
+            extra: { console_asset_hash: await readConsoleAssetHash() }
+          })
+        );
         return;
       }
       if (method === "GET" && pathname === "/session") {

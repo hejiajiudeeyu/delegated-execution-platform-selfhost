@@ -32,6 +32,10 @@ const LIBRARY_PACKAGES = [
   {
     workspace: "@delexec/billing-store",
     assertExpression: '(mod) => typeof mod.createBillingStore === "function" && typeof mod.boundaryFor === "function"'
+  },
+  {
+    workspace: "@delexec/build-info",
+    assertExpression: '(mod) => typeof mod.buildInfoPayload === "function" && typeof mod.readPackageVersion === "function"'
   }
 ];
 

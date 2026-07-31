@@ -3,6 +3,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { buildInfoPayload, readPackageVersion } from "@delexec/build-info";
 import { buildStructuredError } from "@delexec/contracts";
 import { buildOpsEnvSearchPaths, loadEnvFiles } from "@delexec/runtime-utils";
 import Database from "better-sqlite3";
@@ -10,6 +11,7 @@ import Database from "better-sqlite3";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "../../..");
+const RELAY_VERSION = readPackageVersion(import.meta.url);
 
 loadEnvFiles([
   ...buildOpsEnvSearchPaths(ROOT_DIR, "relay"),
@@ -175,6 +177,12 @@ export function createRelayServer({ serviceName = "transport-relay", store = cre
 
       if (method === "GET" && pathname === "/healthz") {
         sendJson(res, 200, { ok: true, service: serviceName });
+        return;
+      }
+
+      // Observed build facts for workspace drift checking (FR-082 / A-09).
+      if (method === "GET" && pathname === "/buildz") {
+        sendJson(res, 200, buildInfoPayload({ component: "transport-relay", version: RELAY_VERSION }));
         return;
       }
 
