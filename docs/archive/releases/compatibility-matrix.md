@@ -11,3 +11,5 @@ Mixed-version deployments are not part of the support promise.
 | `v0.1.5` | `v0.1.5` | `v0.1.5` | `v0.1.5` | Console review queue actions; production rolled gateway only (platform/relay stayed on `v0.1.2`); notes backfilled |
 | `v0.1.6` | `v0.1.6` | `v0.1.6` | `v0.1.6` | Console lost-passphrase recovery + state-driven session UI; contracts `^0.1.3` repin fixes source-built boot; 500 diagnostics |
 | `v0.1.7` | `v0.1.7` | `v0.1.7` | `v0.1.7` | Console gateway-API subpath fix — console now actually works behind `/console/` + `/gateway/` edges |
+| `v0.2.0` | `v0.2.0` | `v0.2.0` | `v0.2.0` | Operator console rebuilt as a fingerprinted React SPA; production rolled gateway only (platform/relay stayed on `v0.1.2`); matrix row backfilled 2026-08-01 |
+| `v0.3.0` | `v0.3.0` | `v0.3.0` | `v0.3.0` | **Breaking**: relay requires `RELAY_ADMIN_TOKEN`+`RELAY_TOKEN_SECRET` and refuses to boot without them; anonymous responder enrollment removed. Adds visibility leases, device version/capacity reporting, the artifact channel and `/buildz` build facts. Roll all three together |
