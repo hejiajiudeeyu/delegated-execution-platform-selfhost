@@ -84,8 +84,11 @@ describe("console aggregate views", () => {
     it("flags a call that passed its grace window without a terminal event", async () => {
       await issueCall("req_stuck_1");
       const request = state.requests.get("req_stuck_1");
-      // push its last event far enough back to exceed the grace window
-      request.events[request.events.length - 1].recorded_at = new Date(Date.now() - 3600_000).toISOString();
+      // Push its last event far enough back to exceed the grace window, on the
+      // field appendRequestEvent actually writes. This used to set
+      // `recorded_at`, a field no production event ever carries, which made the
+      // case pass while isStuckCall returned false for every real call.
+      request.events[request.events.length - 1].at = new Date(Date.now() - 3600_000).toISOString();
 
       const response = await jsonRequest(baseUrl, "/v1/admin/attention", { headers: adminAuth });
       const item = response.body.items.find((entry) => entry.kind === "call_stuck");

@@ -2963,10 +2963,20 @@ function isStuckCall(request, now) {
     return false;
   }
   const latest = latestEventOf(request);
-  if (!latest?.recorded_at) {
+  // appendRequestEvent stamps `at`; `recorded_at` only ever appeared on
+  // hand-built events in tests. Reading `recorded_at` alone meant this returned
+  // false for every real call, so the one guardrail against a silent permanent
+  // pending never fired outside its own test. Both are read now, `at` first,
+  // because that is the field the production path actually writes.
+  const stampedAt = latest?.at || latest?.recorded_at || null;
+  if (!stampedAt) {
     return false;
   }
-  return now - Date.parse(latest.recorded_at) > STUCK_CALL_GRACE_MS;
+  const parsed = Date.parse(stampedAt);
+  if (Number.isNaN(parsed)) {
+    return false;
+  }
+  return now - parsed > STUCK_CALL_GRACE_MS;
 }
 
 export function createPlatformServer({
