@@ -2,7 +2,8 @@ import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConsoleProvider } from "@/state/console";
-import { OverviewPage } from "@/pages/OverviewPage";
+import { AttentionPage } from "@/pages/AttentionPage";
+import { CallDetailPage } from "@/pages/CallDetailPage";
 import { SessionPage } from "@/pages/SessionPage";
 import { CredentialsPage } from "@/pages/CredentialsPage";
 import { ReviewQueuePage } from "@/pages/ReviewQueuePage";
@@ -15,8 +16,13 @@ export default function App() {
       <HashRouter>
         <Routes>
           <Route element={<AppShell />}>
-            <Route path="/" element={<Navigate to="/overview" replace />} />
-            <Route path="/overview" element={<OverviewPage />} />
+            {/* Home is now the attention feed rather than a health panel. The
+                old /overview path redirects so existing links and bookmarks
+                land somewhere useful instead of 404ing. */}
+            <Route path="/" element={<Navigate to="/attention" replace />} />
+            <Route path="/attention" element={<AttentionPage />} />
+            <Route path="/overview" element={<Navigate to="/attention" replace />} />
+            <Route path="/calls/:requestId" element={<CallDetailPage />} />
             <Route path="/session" element={<SessionPage />} />
             <Route path="/credentials" element={<CredentialsPage />} />
             <Route path="/reviews" element={<ReviewQueuePage />} />
@@ -26,7 +32,7 @@ export default function App() {
             <Route path="/marketplace" element={<MarketplacePage />} />
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/audit" element={<AuditPage />} />
-            <Route path="*" element={<Navigate to="/overview" replace />} />
+            <Route path="*" element={<Navigate to="/attention" replace />} />
           </Route>
         </Routes>
       </HashRouter>

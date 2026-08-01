@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { ArrowRight } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -136,10 +137,10 @@ export function RequestsPage() {
   return (
     <GenericListPage
       spec={{
-        crumb: "运营 / 请求",
-        title: "请求",
-        lead: "平台受理的调用请求与状态。",
-        emptyText: "还没有请求记录。",
+        crumb: "运营 / 调用记录",
+        title: "调用记录",
+        lead: "平台受理的调用。点进任意一条看它的完整来龙去脉。",
+        emptyText: "还没有调用记录。",
         pageSize: 8,
         fetch: (offset) => admin.requests(`limit=8&offset=${offset}`),
         render: (item) => (
@@ -150,14 +151,24 @@ export function RequestsPage() {
                 {typeof item.hotline_id === "string" && <CopyChip value={item.hotline_id} />}
               </div>
             </div>
-            <Badge
-              variant="outline"
-              className={
-                item.status === "SUCCEEDED" ? "bg-emerald-50 text-emerald-700" : item.status === "FAILED" ? "bg-red-50 text-red-700" : "bg-muted text-muted-foreground"
-              }
-            >
-              {String(item.status || "—")}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="outline"
+                className={
+                  item.status === "SUCCEEDED" ? "bg-emerald-50 text-emerald-700" : item.status === "FAILED" ? "bg-red-50 text-red-700" : "bg-muted text-muted-foreground"
+                }
+              >
+                {String(item.status || "—")}
+              </Badge>
+              {/* The link the previous console never had: a list row that
+                  leads to the whole story instead of a raw JSON dump. */}
+              <Button asChild size="sm" variant="outline">
+                <Link to={`/calls/${encodeURIComponent(String(item.request_id))}`}>
+                  查看详情
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </div>
           </div>
         )
       }}

@@ -54,4 +54,13 @@ describe("gatewayApiUrl", () => {
       gatewayApiUrl("https://callanything.xyz/gateway/", "/proxy/v2/hotlines?status=pending").toString()
     ).toBe("https://callanything.xyz/gateway/proxy/v2/hotlines?status=pending");
   });
+
+  // The dev path used to pass a bare "/" as the base. `new URL()` rejects a
+  // relative base, the throw was caught and classified as gateway_down, and so
+  // the dev server reported "gateway unreachable" no matter what was running
+  // behind it — through two console rebuilds. The base must be absolute.
+  it("rejects a relative base, which is why the dev base must be an absolute origin", () => {
+    expect(() => gatewayApiUrl("/", "/session")).toThrow();
+    expect(gatewayApiUrl("http://127.0.0.1:5199/", "/session").toString()).toBe("http://127.0.0.1:5199/session");
+  });
 });

@@ -30,7 +30,13 @@ export function setSessionToken(token: string | null): void {
 }
 
 function gatewayBase(): string {
-  if (import.meta.env.DEV) return "/";
+  // Dev goes through the vite proxy, so the base is this origin — but it has
+  // to be an *absolute* base. `new URL("session", "/")` throws Invalid base
+  // URL, and the throw was caught and classified as gateway_down, so the dev
+  // server reported "网关不可达" no matter what was running behind it. Two
+  // console rebuilds were developed against a UI that could not reach a
+  // gateway at all.
+  if (import.meta.env.DEV) return `${window.location.origin}/`;
   return resolveGatewayBase(window.location);
 }
 
@@ -140,8 +146,79 @@ export const gateway = {
     request<T>(`/proxy${pathname}`, options)
 };
 
+// ---- aggregate reads (CHG-2026-189) ----
+// These exist so the console can answer "what needs me" and "the whole story
+// of one call" without joining four list endpoints in the browser. Joining
+// them here is what forced the previous two consoles into per-endpoint pages.
+
+export type AttentionTargetType = "hotline" | "responder" | "request";
+
+export interface AttentionTarget {
+  type: AttentionTargetType;
+  id: string;
+  label: string;
+  availability_status?: string;
+}
+
+export interface AttentionItem {
+  kind: string;
+  severity: "action" | "attention";
+  count: number;
+  summary: string;
+  targets: AttentionTarget[];
+}
+
+export interface AttentionEnvelope {
+  generated_at: string;
+  items: AttentionItem[];
+  /** An empty list is a real answer, not a missing one. */
+  nothing_to_do: boolean;
+  not_tracked: { kind: string; reason: string }[];
+}
+
+/** One of the four state axes. `tracked:false` means the platform does not
+ * follow this axis yet — the console must show the reason, never a guess. */
+export interface AxisState {
+  value: string | null;
+  tracked: boolean;
+  source?: string;
+  reason?: string;
+}
+
+export interface CallArtifact {
+  artifact_id: string;
+  role: string;
+  media_type: string;
+  size_bytes: number;
+  lifecycle_state: string;
+  checksum?: { algorithm: string; value: string } | null;
+  created_at?: string;
+}
+
+export interface CallDetail {
+  request_id: string;
+  caller_id: string | null;
+  responder_id: string | null;
+  hotline_id: string | null;
+  request_kind: string;
+  state: {
+    execution: AxisState;
+    delivery_integrity: AxisState;
+    acceptance: AxisState;
+    settlement: AxisState;
+  };
+  timeline: Record<string, unknown>[];
+  artifacts: CallArtifact[];
+  billing: Record<string, unknown> | null;
+  responder: Record<string, unknown> | null;
+  hotline: Record<string, unknown> | null;
+  audit_events: Record<string, unknown>[];
+}
+
 // ---- admin data surface (platform-api via /proxy, frozen API) ----
 export const admin = {
+  attention: () => gateway.proxy<AttentionEnvelope>("/v1/admin/attention"),
+  callDetail: (requestId: string) => gateway.proxy<CallDetail>(`/v1/admin/requests/${encodeURIComponent(requestId)}`),
   responders: (query: string) => gateway.proxy<{ items?: unknown[]; total?: number }>(`/v2/admin/responders?${query}`),
   hotlines: (query: string) => gateway.proxy<{ items?: unknown[]; total?: number }>(`/v2/admin/hotlines?${query}`),
   requests: (query: string) => gateway.proxy<{ items?: unknown[]; total?: number }>(`/v1/admin/requests?${query}`),

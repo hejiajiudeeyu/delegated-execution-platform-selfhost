@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,7 @@ function fmt(cents: number | undefined | null): string {
 
 export function BillingPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [tenantInput, setTenantInput] = useState("");
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -59,6 +60,18 @@ export function BillingPage() {
     if (!balance.ok && balance.status === 404) setNotFound(true);
     setLoading(false);
   }, []);
+
+  // A tenant id is an internal primary key. Asking the operator to type one
+  // was the clearest case of the interface treating internal vocabulary as
+  // something the user already knows. Arriving from a call detail now carries
+  // it, so the id is filled in and queried rather than transcribed by hand.
+  useEffect(() => {
+    const carried = searchParams.get("tenant");
+    if (carried) {
+      setTenantInput(carried);
+      void load(carried);
+    }
+  }, [searchParams, load]);
 
   const createTenant = useAction(async () => {
     const r = await admin.billingCreateTenant(tenantId || tenantInput.trim());

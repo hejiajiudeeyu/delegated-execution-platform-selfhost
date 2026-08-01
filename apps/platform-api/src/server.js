@@ -2936,20 +2936,24 @@ function buildCallStateAxes(request) {
       tracked: true,
       source: "request events"
     },
+    // These reasons are shown verbatim to the operator, so they are written in
+    // the same language as the attention feed's summaries rather than leaving
+    // the console to translate — a translation layer here would drift from
+    // whatever the platform actually means.
     delivery_integrity: {
       value: null,
       tracked: false,
-      reason: "delivery verification is not implemented yet (M3)"
+      reason: "交付校验尚未实现（M3）"
     },
     acceptance: {
       value: null,
       tracked: false,
-      reason: "acceptance window and revision are not implemented yet (M3)"
+      reason: "验收窗口与修订尚未实现（M3）"
     },
     settlement: {
       value: settlement === "held" ? "held" : settlement === "settled" ? "settled" : settlement === "refunded" ? "refunded" : "none",
       tracked: Boolean(request.billing),
-      source: request.billing ? "request.billing" : "no billing on this request"
+      source: request.billing ? "request.billing" : "这次调用没有计费"
     }
   };
 }

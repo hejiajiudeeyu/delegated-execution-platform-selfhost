@@ -5,13 +5,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/components/ui/utils";
 import { PHASE_LABEL, useConsole } from "@/state/console";
 
+// Grouped by what the operator is trying to do, not by which API endpoint
+// serves it. The previous nav listed platform-api's resources, which is why
+// none of the three things an operator actually does mapped to a single page.
 const NAV: { group: string; items: { to: string; label: string; needsUnlock?: boolean }[] }[] = [
-  { group: "概览", items: [{ to: "/overview", label: "总览" }] },
+  { group: "开始", items: [{ to: "/attention", label: "需要我做的事" }] },
   {
     group: "运营",
     items: [
       { to: "/reviews", label: "审批队列", needsUnlock: true },
-      { to: "/requests", label: "请求", needsUnlock: true }
+      { to: "/requests", label: "调用记录", needsUnlock: true }
     ]
   },
   {
