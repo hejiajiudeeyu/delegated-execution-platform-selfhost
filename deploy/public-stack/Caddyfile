@@ -12,15 +12,21 @@
     reverse_proxy platform-api:8080
   }
 
-  # Relay business endpoints (send/poll/ack/peek) are unauthenticated and must
-  # stay internal-only; only the health probe is exposed at the edge.
-  handle /relay/healthz {
-    rewrite * /healthz
+  # The relay is public again as of 2026-08-02. It was closed at the edge on
+  # 2026-07-31 (CHG-2026-181) because its business routes were unauthenticated
+  # and anyone could read, inject or delete task envelopes; CHG-2026-183 then
+  # fixed the cause — admin token, receiver-scoped tokens, visibility leases,
+  # lease-guarded idempotent ack — and every business route now answers 401
+  # without a valid bearer.
+  #
+  # Reopening is what makes a Provider device off the platform's own host
+  # possible at all: the responder long-polls this inbox, so an edge that
+  # refuses it means no cross-device runtime.
+  #
+  # The protection is the relay's own authentication, not this proxy. If that
+  # ever regresses, this block must close again.
+  handle_path /relay/* {
     reverse_proxy relay:8090
-  }
-
-  handle /relay/* {
-    respond "relay is internal-only" 403
   }
 
   handle_path /gateway/* {
