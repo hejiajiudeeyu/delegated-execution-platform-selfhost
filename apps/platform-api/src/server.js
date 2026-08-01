@@ -9,10 +9,12 @@ import {
   ARTIFACT_ROLE,
   BILLING_ERROR_CODE,
   BILLING_EVENT,
+  EXECUTION_STATUS,
   PRICING_MODEL,
   TRUST_TIER,
   buildStructuredError,
   canonicalizeResultPackageForSignature,
+  validateReconciliationReport,
   validateBillingUsage,
   validateCatalogGuidanceFields,
   validatePricingHint,
@@ -788,6 +790,54 @@ function defaultBillingUsageForRequest(request) {
     };
   }
   return null;
+}
+
+/**
+ * The responder signs the report's keys in sorted order, so the platform can
+ * rebuild the signed bytes without depending on either side's JSON key order.
+ */
+function canonicalizeReconciliationReport(report) {
+  const ordered = {};
+  for (const key of Object.keys(report).sort()) {
+    if (report[key] !== undefined) {
+      ordered[key] = report[key];
+    }
+  }
+  return ordered;
+}
+
+/**
+ * Verified against the responder's registered keys — including superseded ones,
+ * since a device that crashed before a key rotation finished still holds the
+ * old key and its interrupted work still needs closing out.
+ */
+function verifyReconciliationSignature(report, signature, acceptedPublicKeysPem = []) {
+  if (!signature?.signature_base64 || acceptedPublicKeysPem.length === 0) {
+    return false;
+  }
+  if (signature.signature_algorithm && signature.signature_algorithm !== "Ed25519") {
+    return false;
+  }
+
+  let signingBytes;
+  let signatureBytes;
+  try {
+    signingBytes = Buffer.from(JSON.stringify(canonicalizeReconciliationReport(report)), "utf8");
+    signatureBytes = Buffer.from(signature.signature_base64, "base64");
+  } catch {
+    return false;
+  }
+
+  for (const publicKeyPem of acceptedPublicKeysPem) {
+    try {
+      if (crypto.verify(null, signingBytes, crypto.createPublicKey(publicKeyPem), signatureBytes)) {
+        return true;
+      }
+    } catch {
+      // A key that will not parse is simply not a key that verifies this report.
+    }
+  }
+  return false;
 }
 
 async function applyTerminalBillingIfNeeded(state, request, body) {
@@ -3579,6 +3629,147 @@ export function createPlatformServer({
           accepted: true,
           request_id: requestId,
           event: request.events[request.events.length - 1]
+        });
+        return;
+      }
+
+      const reconcileMatch = pathname.match(/^\/v1\/requests\/([^/]+)\/reconcile$/);
+      if (method === "POST" && reconcileMatch) {
+        const requestId = reconcileMatch[1];
+        const auth = requireAuth(req, res, state);
+        if (!auth) {
+          return;
+        }
+        if (auth.type !== "responder") {
+          sendError(res, 403, "AUTH_SCOPE_FORBIDDEN", "only responder callers may reconcile requests");
+          return;
+        }
+
+        const body = await parseJsonBody(req);
+        const report = body?.report;
+        const signature = body?.signature;
+
+        const validation = validateReconciliationReport(report);
+        if (!validation.valid) {
+          sendError(res, 400, "CONTRACT_INVALID_RECONCILIATION", validation.errors.join("; "));
+          return;
+        }
+        if (report.call_id !== requestId) {
+          sendError(
+            res,
+            400,
+            "CONTRACT_INVALID_RECONCILIATION",
+            "reconciliation.call_id does not match the request being reconciled"
+          );
+          return;
+        }
+
+        // A reconciliation report is a claim about work nobody watched finish.
+        // Delivery has its own path — signed result package, committed
+        // artifacts, checksum — and this is not it. Accepting `delivered` here
+        // would let an interrupted attempt talk its way into a settlement,
+        // which is precisely the hole A-03 exists to close.
+        if (report.observed_execution === EXECUTION_STATUS.DELIVERED) {
+          sendError(
+            res,
+            409,
+            "RECONCILIATION_CANNOT_CLAIM_DELIVERY",
+            "a reconciliation report may not report delivered; deliver the signed result package instead"
+          );
+          return;
+        }
+
+        const request = state.requests.get(requestId);
+        if (!request) {
+          sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
+          return;
+        }
+        if (request.responder_id && request.responder_id !== auth.responder_id) {
+          sendError(res, 403, "AUTH_RESOURCE_FORBIDDEN", "request is bound to another responder");
+          return;
+        }
+
+        const responder = state.responders.get(auth.responder_id);
+        const acceptedKeys = [
+          ...(responder?.responder_public_keys_pem || []),
+          ...(responder?.responder_public_key_pem ? [responder.responder_public_key_pem] : []),
+          ...(request.expected_signer_public_key_pem ? [request.expected_signer_public_key_pem] : [])
+        ].filter(Boolean);
+        if (!verifyReconciliationSignature(report, signature, acceptedKeys)) {
+          sendError(
+            res,
+            403,
+            "RECONCILIATION_SIGNATURE_INVALID",
+            "reconciliation report signature does not verify against a registered responder key"
+          );
+          return;
+        }
+
+        // Idempotent per attempt: a responder that restarts twice before the
+        // response gets home must not move money twice.
+        const alreadyReconciled = (request.events || []).find(
+          (event) => event.event_type === "RECONCILED" && event.attempt_id === report.attempt_id
+        );
+        if (alreadyReconciled) {
+          sendJson(res, 202, {
+            accepted: true,
+            request_id: requestId,
+            event: alreadyReconciled,
+            deduped: true,
+            billing_state: request.billing?.state || null
+          });
+          return;
+        }
+
+        // If the call already reached a terminal outcome by the normal path,
+        // the reconciliation is late news. Record it for the audit trail, but
+        // never let it re-open or re-price a settled call.
+        const existingTerminal = (request.events || []).find((event) =>
+          ["COMPLETED", "FAILED"].includes(event.event_type)
+        );
+
+        let billingEvent = null;
+        if (!existingTerminal) {
+          const terminalBilling = await applyTerminalBillingIfNeeded(state, request, {
+            event_type: "FAILED",
+            finished_at: report.reconciled_at || nowIso()
+          });
+          if (terminalBilling.error) {
+            sendJson(res, terminalBilling.statusCode || 400, { error: terminalBilling.error });
+            return;
+          }
+          billingEvent = terminalBilling.billingEvent;
+        }
+
+        appendRequestEvent(request, "RECONCILED", {
+          actor_type: "responder",
+          responder_id: auth.responder_id,
+          hotline_id: request.hotline_id || null,
+          attempt_id: report.attempt_id,
+          boot_id: report.boot_id,
+          reconciled_by_boot_id: report.reconciled_by_boot_id || null,
+          observed_execution: report.observed_execution,
+          recoverability: report.recoverability || null,
+          reason: report.reason || "interrupted_attempt_outcome_unobserved",
+          superseded_by_existing_terminal: Boolean(existingTerminal)
+        });
+        if (billingEvent) {
+          appendRequestEvent(request, billingEvent.event_type, {
+            actor_type: "platform",
+            event_name: billingEvent.event_name,
+            amount_cents: billingEvent.amount_cents,
+            ledger_id: billingEvent.ledger_id,
+            refund_ledger_id: billingEvent.refund_ledger_id || null
+          });
+        }
+        await persistPlatformState(onStateChanged, state);
+
+        sendJson(res, 202, {
+          accepted: true,
+          request_id: requestId,
+          event: request.events[request.events.length - 1],
+          billing_state: request.billing?.state || null,
+          superseded_by_existing_terminal: Boolean(existingTerminal)
         });
         return;
       }
