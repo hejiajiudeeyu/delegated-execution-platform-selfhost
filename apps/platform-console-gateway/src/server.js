@@ -159,10 +159,35 @@ function providedBootstrapSecret(req, body = {}) {
   return normalizedString(body.bootstrap_secret);
 }
 
+/** Constant-time equality for secrets, safe on differing lengths. */
+function secretsMatch(provided, configured) {
+  if (typeof provided !== "string" || typeof configured !== "string" || !provided || !configured) {
+    return false;
+  }
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(configured, "utf8");
+  // timingSafeEqual throws on length mismatch, so compare digests: equal
+  // length always, and the comparison itself stays constant-time.
+  return crypto.timingSafeEqual(crypto.createHash("sha256").update(a).digest(), crypto.createHash("sha256").update(b).digest());
+}
+
+/**
+ * Did the operator paste the deployment key into the passphrase box?
+ *
+ * It is a predictable mix-up — both are long opaque strings, the reset link
+ * sits directly under the unlock field, and the deployment key is the one an
+ * operator can always retrieve from the host. Saying so costs nothing: the
+ * caller submitted the value, so this confirms nothing they did not already
+ * have, and `requireBootstrapSetupAccess` is already the same oracle.
+ */
+function looksLikeBootstrapSecret(passphrase) {
+  return secretsMatch(passphrase, normalizedString(process.env.PLATFORM_CONSOLE_BOOTSTRAP_SECRET));
+}
+
 function requireBootstrapSetupAccess(req, res, body = {}) {
   const configuredSecret = normalizedString(process.env.PLATFORM_CONSOLE_BOOTSTRAP_SECRET);
   if (configuredSecret) {
-    if (providedBootstrapSecret(req, body) === configuredSecret) {
+    if (secretsMatch(providedBootstrapSecret(req, body), configuredSecret)) {
       return true;
     }
     sendError(
@@ -476,8 +501,23 @@ export function createPlatformConsoleGatewayServer() {
           const secrets = unlockOpsSecrets(passphrase);
           const session = createSession(runtime, passphrase, secrets);
           sendJson(res, 200, { ok: true, token: session.token, expires_at: session.expires_at, session: authState(state, runtime) });
-        } catch (error) {
-          sendError(res, 401, "AUTH_INVALID_PASSPHRASE", error instanceof Error ? error.message : "secret_unlock_failed");
+        } catch {
+          // Never surface the decryption error itself. A failed unlock always
+          // fails inside AES-GCM, and Node words that as "Unsupported state or
+          // unable to authenticate data" — which tells an operator nothing and
+          // reads like the gateway is broken rather than like a wrong
+          // passphrase. It has already sent at least one person hunting for a
+          // bug in the verifier when the verifier was working correctly.
+          if (looksLikeBootstrapSecret(passphrase)) {
+            sendError(
+              res,
+              401,
+              "AUTH_BOOTSTRAP_SECRET_IS_NOT_PASSPHRASE",
+              "这是部署密钥(PLATFORM_CONSOLE_BOOTSTRAP_SECRET)，不是控制台口令。部署密钥只能用于下方的「重置」入口；重置会作废现有会话并让你设定新口令。"
+            );
+            return;
+          }
+          sendError(res, 401, "AUTH_INVALID_PASSPHRASE", "口令不正确。若已遗失，用下方的「通过部署密钥重置」。");
         }
         return;
       }

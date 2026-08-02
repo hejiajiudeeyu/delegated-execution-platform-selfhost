@@ -154,6 +154,57 @@ describe("platform console gateway integration", () => {
     }
   });
 
+  // A failed unlock always fails inside AES-GCM, and Node words that as
+  // "Unsupported state or unable to authenticate data". Returning that
+  // verbatim made a correct rejection read as a broken gateway, and cost real
+  // debugging time chasing a verifier that was working.
+  it("explains a failed unlock instead of leaking the decryption error", async () => {
+    const opsHome = fs.mkdtempSync(path.join(os.tmpdir(), "platform-console-gateway-unlock-"));
+    cleanupDirs.push(opsHome);
+    process.env.DELEXEC_HOME = opsHome;
+    process.env.PLATFORM_CONSOLE_BOOTSTRAP_SECRET = "deploy-key-not-a-passphrase";
+
+    const gateway = createPlatformConsoleGatewayServer();
+    const gatewayUrl = await listenServer(gateway);
+
+    try {
+      const created = await jsonRequest(gatewayUrl, "/session/setup", {
+        method: "POST",
+        headers: { "X-Platform-Console-Bootstrap-Secret": "deploy-key-not-a-passphrase" },
+        body: { passphrase: "the-real-passphrase" }
+      });
+      expect(created.status).toBe(201);
+
+      const wrong = await jsonRequest(gatewayUrl, "/session/login", {
+        method: "POST",
+        body: { passphrase: "some-other-passphrase" }
+      });
+      expect(wrong.status).toBe(401);
+      expect(wrong.body.error.code).toBe("AUTH_INVALID_PASSPHRASE");
+      expect(wrong.body.error.message).not.toMatch(/unable to authenticate data/i);
+
+      // The deployment key in the passphrase box is a predictable mix-up —
+      // both are long opaque strings and the reset link sits right below the
+      // unlock field — so it gets its own answer rather than "wrong password".
+      const mixedUp = await jsonRequest(gatewayUrl, "/session/login", {
+        method: "POST",
+        body: { passphrase: "deploy-key-not-a-passphrase" }
+      });
+      expect(mixedUp.status).toBe(401);
+      expect(mixedUp.body.error.code).toBe("AUTH_BOOTSTRAP_SECRET_IS_NOT_PASSPHRASE");
+      expect(mixedUp.body.error.message).not.toMatch(/unable to authenticate data/i);
+
+      const right = await jsonRequest(gatewayUrl, "/session/login", {
+        method: "POST",
+        body: { passphrase: "the-real-passphrase" }
+      });
+      expect(right.status).toBe(200);
+      expect(typeof right.body.token).toBe("string");
+    } finally {
+      await closeServer(gateway);
+    }
+  });
+
   it("recovers a lost gateway passphrase through bootstrap secret without preserving admin credentials", async () => {
     const opsHome = fs.mkdtempSync(path.join(os.tmpdir(), "platform-console-gateway-recover-"));
     cleanupDirs.push(opsHome);
