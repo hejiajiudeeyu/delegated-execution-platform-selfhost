@@ -24,6 +24,7 @@ import {
   ARTIFACT_ROLE,
   AXIS_LABEL,
   EXECUTION_VALUE,
+  PROGRESS_STAGE_LABEL,
   SETTLEMENT_VALUE,
   Term,
   describeEvent
@@ -145,12 +146,32 @@ export function CallDetailPage() {
                     {call.timeline.map((event, index) => {
                       const type = String(event.event_type ?? "");
                       const at = event.at ? new Date(String(event.at)) : null;
+                      // Progress rows are observations, not milestones: drawn
+                      // hollow and grey so the eye still reads the lifecycle
+                      // events as the skeleton of the timeline.
+                      const progress =
+                        type === "PROGRESS" && event.progress && typeof event.progress === "object"
+                          ? (event.progress as { stage?: string; percent?: number; message?: string })
+                          : null;
                       return (
                         <li key={`${type}-${index}`} className="flex gap-3 border-b border-border/60 py-2.5 last:border-0">
-                          <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary/60" />
+                          <span
+                            className={cn(
+                              "mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                              progress ? "border border-muted-foreground/50 bg-transparent" : "bg-primary/60"
+                            )}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-baseline gap-2">
-                              <span className="text-sm font-medium">{describeEvent(type)}</span>
+                              <span className={cn("text-sm", progress ? "text-muted-foreground" : "font-medium")}>
+                                {describeEvent(type)}
+                              </span>
+                              {progress && (
+                                <span className="text-sm text-muted-foreground">
+                                  {PROGRESS_STAGE_LABEL[String(progress.stage)] || String(progress.stage ?? "")}
+                                  {typeof progress.percent === "number" && ` · ${Math.round(progress.percent)}%`}
+                                </span>
+                              )}
                               {typeof event.actor_type === "string" && (
                                 <Badge variant="outline" className="text-[10px]">
                                   {ACTOR_LABEL[event.actor_type] || String(event.actor_type)}
@@ -160,6 +181,12 @@ export function CallDetailPage() {
                                 <span className="text-xs text-muted-foreground">{at.toLocaleString()}</span>
                               )}
                             </div>
+                            {progress && typeof progress.message === "string" && progress.message && (
+                              <div className="text-xs text-muted-foreground">{progress.message}</div>
+                            )}
+                            {typeof event.message === "string" && !progress && type === "SOFT_TIMEOUT" && (
+                              <div className="text-xs text-muted-foreground">{event.message}</div>
+                            )}
                             {typeof event.reason === "string" && (
                               <div className="text-xs text-muted-foreground">{event.reason}</div>
                             )}

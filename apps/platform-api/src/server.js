@@ -10,11 +10,15 @@ import {
   BILLING_ERROR_CODE,
   BILLING_EVENT,
   EXECUTION_STATUS,
+  OBSERVATIONAL_REQUEST_EVENT,
   PRICING_MODEL,
+  REQUEST_PROGRESS_MESSAGE_MAX_LENGTH,
   TRUST_TIER,
   buildStructuredError,
   canonicalizeResultPackageForSignature,
+  isExecutionTerminal,
   validateReconciliationReport,
+  validateRequestProgress,
   validateBillingUsage,
   validateCatalogGuidanceFields,
   validatePricingHint,
@@ -49,6 +53,10 @@ const OFFLINE_THRESHOLD_S = 180;
 const REVIEW_TEST_CALLER_ID = "caller_review_bot";
 const REVIEW_TEST_RECEIVER_PREFIX = "platform-review-bot";
 const DEFAULT_REQUEST_EVENT_HISTORY_LIMIT = 200;
+// Progress observations are pruned separately and more aggressively than the
+// overall event history, so a chatty executor can never evict the lifecycle
+// events the execution projection is built from.
+const DEFAULT_REQUEST_PROGRESS_HISTORY_LIMIT = 50;
 const DEFAULT_TELEMETRY_HISTORY_LIMIT = 5000;
 const DEFAULT_HOTLINE_QUOTA_PER_RESPONDER = 25;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -1947,6 +1955,43 @@ function appendRequestEvent(request, eventType, detail = {}) {
   }, readNumberEnv(process.env.PLATFORM_REQUEST_EVENT_HISTORY_LIMIT, DEFAULT_REQUEST_EVENT_HISTORY_LIMIT));
 }
 
+// Append a PROGRESS observation, then prune only PROGRESS rows beyond their
+// own budget. Lifecycle events are never sacrificed for telemetry: dropping
+// TASK_TOKEN_ISSUED or ACKED to make room for "page 4 of 10" would corrupt
+// the execution projection to save the least important data on the call.
+function appendProgressEvent(request, detail = {}) {
+  request.events.push({
+    at: nowIso(),
+    event_type: OBSERVATIONAL_REQUEST_EVENT.PROGRESS,
+    ...detail
+  });
+  const limit = readNumberEnv(
+    process.env.PLATFORM_REQUEST_PROGRESS_HISTORY_LIMIT,
+    DEFAULT_REQUEST_PROGRESS_HISTORY_LIMIT
+  );
+  const progressIndexes = [];
+  for (let index = 0; index < request.events.length; index += 1) {
+    if (request.events[index].event_type === OBSERVATIONAL_REQUEST_EVENT.PROGRESS) {
+      progressIndexes.push(index);
+    }
+  }
+  const excess = progressIndexes.length - Math.max(1, limit);
+  if (excess > 0) {
+    const dropped = new Set(progressIndexes.slice(0, excess));
+    request.events = request.events.filter((_, index) => !dropped.has(index));
+  }
+}
+
+function findMatchingProgressEvent(request, { responderId, attemptId, seq }) {
+  return (request.events || []).find(
+    (event) =>
+      event.event_type === OBSERVATIONAL_REQUEST_EVENT.PROGRESS &&
+      event.responder_id === responderId &&
+      (event.progress?.attempt_id ?? null) === (attemptId ?? null) &&
+      event.progress?.seq === seq
+  );
+}
+
 function resolveServiceCandidates(state, body) {
   const constraints = body.constraints && typeof body.constraints === "object" ? body.constraints : {};
   const availability = constraints.availability_status || "healthy";
@@ -3573,12 +3618,13 @@ export function createPlatformServer({
           );
           return;
         }
-        if (!["COMPLETED", "FAILED"].includes(body.event_type)) {
+        const isObservationalEvent = Object.values(OBSERVATIONAL_REQUEST_EVENT).includes(body.event_type);
+        if (!["COMPLETED", "FAILED"].includes(body.event_type) && !isObservationalEvent) {
           sendError(
             res,
             400,
             "CONTRACT_INVALID_REQUEST_EVENT",
-            "event_type must be COMPLETED or FAILED"
+            "event_type must be COMPLETED, FAILED, PROGRESS, or SOFT_TIMEOUT"
           );
           return;
         }
@@ -3603,6 +3649,71 @@ export function createPlatformServer({
 
         request.responder_id = body.responder_id;
         request.hotline_id = body.hotline_id;
+
+        // Observations (PROGRESS/SOFT_TIMEOUT) describe a run that is still
+        // going. They never touch billing, never feed the execution
+        // projection, and are refused once execution is terminal — a beat
+        // arriving after COMPLETED is stale by definition, and recording it
+        // would put "still executing" after "done" in the operator's timeline.
+        if (isObservationalEvent) {
+          if (isExecutionTerminal(projectExecutionState(request))) {
+            sendError(
+              res,
+              409,
+              "CONTRACT_EXECUTION_TERMINAL",
+              "execution already reached a terminal state; late observations are not recorded"
+            );
+            return;
+          }
+
+          if (body.event_type === OBSERVATIONAL_REQUEST_EVENT.PROGRESS) {
+            const progressCheck = validateRequestProgress(body.progress);
+            if (!progressCheck.valid) {
+              sendError(res, 400, "CONTRACT_INVALID_PROGRESS", progressCheck.errors.join("; "));
+              return;
+            }
+            const existingProgress = findMatchingProgressEvent(request, {
+              responderId: body.responder_id,
+              attemptId: body.progress.attempt_id ?? null,
+              seq: body.progress.seq
+            });
+            if (existingProgress) {
+              sendJson(res, 202, { accepted: true, request_id: requestId, event: existingProgress, deduped: true });
+              return;
+            }
+            appendProgressEvent(request, {
+              actor_type: "responder",
+              responder_id: body.responder_id,
+              hotline_id: body.hotline_id,
+              progress: { ...body.progress }
+            });
+          } else {
+            const existingSoftTimeout = findMatchingRequestEvent(request, {
+              eventType: body.event_type,
+              responderId: body.responder_id,
+              hotlineId: body.hotline_id
+            });
+            if (existingSoftTimeout) {
+              sendJson(res, 202, { accepted: true, request_id: requestId, event: existingSoftTimeout, deduped: true });
+              return;
+            }
+            appendRequestEvent(request, body.event_type, {
+              actor_type: "responder",
+              responder_id: body.responder_id,
+              hotline_id: body.hotline_id,
+              status: "running",
+              message: typeof body.message === "string" ? body.message.slice(0, REQUEST_PROGRESS_MESSAGE_MAX_LENGTH) : null
+            });
+          }
+
+          await persistPlatformState(onStateChanged, state);
+          sendJson(res, 202, {
+            accepted: true,
+            request_id: requestId,
+            event: request.events[request.events.length - 1]
+          });
+          return;
+        }
 
         const existingEvent = findMatchingRequestEvent(request, {
           eventType: body.event_type,

@@ -98,6 +98,8 @@ export const EVENT_LABEL: Record<string, string> = {
   ACKED: "设备已接单",
   ARTIFACT_ALLOCATED: "开出文件槽位",
   ARTIFACT_COMMITTED: "文件已写入并校验",
+  PROGRESS: "执行进度",
+  SOFT_TIMEOUT: "超过软超时，仍在运行",
   COMPLETED: "执行完成",
   FAILED: "执行失败",
   TIMED_OUT: "超时",
@@ -105,6 +107,14 @@ export const EVENT_LABEL: Record<string, string> = {
   BILLING_HELD: "资金已冻结",
   BILLING_SETTLED: "资金已结算",
   BILLING_REFUNDED: "资金已退款"
+};
+
+// Stages a device reports while a call runs (contracts
+// REQUEST_PROGRESS_STAGE). Shown inside a PROGRESS timeline row.
+export const PROGRESS_STAGE_LABEL: Record<string, string> = {
+  input_fetching: "正在取回输入文件",
+  executing: "正在执行",
+  output_uploading: "正在上传结果文件"
 };
 
 export const ACTOR_LABEL: Record<string, string> = {
