@@ -88,7 +88,12 @@ export function CallDetailPage() {
     void load();
   }, [load]);
 
-  const call = result?.body ?? null;
+  // Only a successful response is a call. An error body (401 after the
+  // session expires, 404, gateway failure) is truthy but has no `state`, and
+  // rendering it as a call crashed the whole page to white — found live when
+  // visiting a detail link before unlocking. DataState shows the error; this
+  // guard keeps the crashed render from ever being constructed.
+  const call = result?.ok ? (result.body ?? null) : null;
 
   return (
     <div>
