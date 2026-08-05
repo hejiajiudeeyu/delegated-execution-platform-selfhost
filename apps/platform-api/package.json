@@ -38,7 +38,7 @@
     "@delexec/artifact-store": "0.1.0",
     "@delexec/billing-store": "0.1.0",
     "@delexec/build-info": "0.1.0",
-    "@delexec/contracts": "^0.1.4",
+    "@delexec/contracts": "^0.1.5",
     "@delexec/postgres-store": "0.1.0",
     "@delexec/runtime-utils": "0.1.0",
     "@delexec/sqlite-store": "0.1.0",
