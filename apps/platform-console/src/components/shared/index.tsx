@@ -20,21 +20,48 @@ export function ActionResult({ result, okText }: { result: ApiResult | null; okT
       </div>
     );
   }
+  const problems = itemizedProblems(result.raw);
   const human =
     result.failure === "gateway_down"
       ? "网关没有应答——请确认 platform-console-gateway 正在运行,然后重试。"
       : result.failure === "auth"
         ? "凭据无效或会话已过期。"
-        : result.message || "请求被拒绝,请检查输入。";
+        : problems.length > 0
+          ? "这个声明还不能作为契约发布,缺少下面这些:"
+          : result.message || "请求被拒绝,请检查输入。";
   return (
     <div className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         {human}
+        {problems.length > 0 && (
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            {problems.map((problem, index) => (
+              <li key={index}>{problem}</li>
+            ))}
+          </ul>
+        )}
         <TechDetails raw={result.raw} />
       </div>
     </div>
   );
+}
+
+/**
+ * Some refusals are a list, not a sentence. Joining them with semicolons into
+ * one paragraph is how an operator stops reading at the first item and fixes
+ * one problem per round trip.
+ */
+function itemizedProblems(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    // `raw` is the envelope the api layer builds: { status, body }.
+    const parsed = JSON.parse(raw) as { problems?: unknown; body?: { problems?: unknown } };
+    const problems = parsed.body?.problems ?? parsed.problems;
+    return Array.isArray(problems) ? problems.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Collapsed raw JSON — for debugging only, never the primary UI. */
