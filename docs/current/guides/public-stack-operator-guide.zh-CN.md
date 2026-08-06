@@ -138,3 +138,11 @@ public-stack 镜像集合为：
 
 这三个 GHCR package 必须设为 public，匿名 operator 才能拉取。
 `rsp-caller` 与 `rsp-responder` 不属于 public-stack 发布路径，只在遗留/内部 compose profile 中被引用。
+
+## 备份与恢复
+
+这个栈有**四个**有状态面，不是一个：PostgreSQL、artifact 字节、gateway 凭据存储、relay
+的 sqlite。只备份数据库，恢复出来的是一堆指向已消失字节的描述符。
+
+工具（`scripts/stack-backup.mjs`）、备份刻意不含什么、以及用全新密钥恢复时会遇到什么，
+见[备份与恢复](./backup-and-restore.zh-CN.md)。

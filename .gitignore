@@ -28,3 +28,7 @@ junit.xml
 
 # Process files
 *.pid
+
+# Stack backups (scripts/stack-backup.mjs). A backup carries API keys and the
+# encrypted console credential store; it must never reach a commit.
+backups/

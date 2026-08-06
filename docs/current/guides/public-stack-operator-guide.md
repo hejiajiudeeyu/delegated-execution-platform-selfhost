@@ -186,3 +186,13 @@ The public-stack image set is:
 
 These three GHCR packages must be public before anonymous operator pulls can work.
 The `rsp-caller` and `rsp-responder` images are not part of the public-stack release path; they are only referenced by legacy/internal compose profiles.
+
+## Backup and Restore
+
+The stack has four stateful surfaces, not one: PostgreSQL, artifact bytes, the
+gateway credential store, and the relay's sqlite. A backup that covers only the
+database restores into descriptors pointing at bytes that are gone.
+
+See [Backup and Restore](./backup-and-restore.md) for the tooling
+(`scripts/stack-backup.mjs`), what a backup deliberately excludes, and what to
+expect when restoring with freshly generated secrets.
