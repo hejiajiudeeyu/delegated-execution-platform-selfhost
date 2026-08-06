@@ -35,6 +35,7 @@ const NAV: { group: string; items: { to: string; label: string; needsUnlock?: bo
   {
     group: "设置",
     items: [
+      { to: "/alerts", label: "告警", needsUnlock: true },
       { to: "/session", label: "会话与解锁" },
       { to: "/credentials", label: "网关凭据", needsUnlock: true }
     ]

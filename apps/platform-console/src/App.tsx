@@ -3,6 +3,7 @@ import { Toaster } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { ConsoleProvider } from "@/state/console";
 import { AttentionPage } from "@/pages/AttentionPage";
+import { AlertsPage } from "@/pages/AlertsPage";
 import { CallDetailPage } from "@/pages/CallDetailPage";
 import { SessionPage } from "@/pages/SessionPage";
 import { CredentialsPage } from "@/pages/CredentialsPage";
@@ -23,6 +24,7 @@ export default function App() {
             <Route path="/attention" element={<AttentionPage />} />
             <Route path="/overview" element={<Navigate to="/attention" replace />} />
             <Route path="/calls/:requestId" element={<CallDetailPage />} />
+            <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/session" element={<SessionPage />} />
             <Route path="/credentials" element={<CredentialsPage />} />
             <Route path="/reviews" element={<ReviewQueuePage />} />

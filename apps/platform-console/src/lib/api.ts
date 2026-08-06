@@ -215,9 +215,50 @@ export interface CallDetail {
   audit_events: Record<string, unknown>[];
 }
 
+export interface AlertConfig {
+  enabled: boolean;
+  webhook_url: string | null;
+  webhook_secret_set: boolean;
+  renotify_hours: number;
+  liveness_url: string | null;
+  liveness_interval_minutes: number;
+  updated_at: string | null;
+}
+
+export interface AlertDelivery {
+  at: string;
+  key: string;
+  event: string;
+  kind: string;
+  target_id: string | null;
+  ok: boolean;
+  status: number | null;
+  error: string | null;
+  attempts: number | null;
+}
+
+export interface AlertStatus {
+  config: AlertConfig;
+  last_pass_at: string | null;
+  liveness_last_ping: { at: string; ok: boolean; status: number | null; error: string | null } | null;
+  open_alerts: { key: string; kind: string; target_id: string | null; first_seen_at: string; notify_count?: number }[];
+  recent_deliveries: AlertDelivery[];
+  recent_failure_count: number;
+  not_covered: { kind: string; reason: string }[];
+}
+
 // ---- admin data surface (platform-api via /proxy, frozen API) ----
 export const admin = {
   attention: () => gateway.proxy<AttentionEnvelope>("/v1/admin/attention"),
+  alertConfig: () => gateway.proxy<{ config: AlertConfig }>("/v1/admin/alerts/config"),
+  alertStatus: () => gateway.proxy<AlertStatus>("/v1/admin/alerts/status"),
+  alertConfigSave: (body: Record<string, unknown>) =>
+    gateway.proxy<{ config: AlertConfig }>("/v1/admin/alerts/config", { method: "PUT", body }),
+  alertTest: () =>
+    gateway.proxy<{ delivered: boolean; status: number | null; error: string | null }>("/v1/admin/alerts/test", {
+      method: "POST",
+      body: {}
+    }),
   callDetail: (requestId: string) => gateway.proxy<CallDetail>(`/v1/admin/requests/${encodeURIComponent(requestId)}`),
   responders: (query: string) => gateway.proxy<{ items?: unknown[]; total?: number }>(`/v2/admin/responders?${query}`),
   hotlines: (query: string) => gateway.proxy<{ items?: unknown[]; total?: number }>(`/v2/admin/hotlines?${query}`),

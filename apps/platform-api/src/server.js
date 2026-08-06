@@ -34,6 +34,16 @@ import { createPostgresSnapshotStore } from "@delexec/postgres-store";
 import { createSqliteSnapshotStore } from "@delexec/sqlite-store";
 import { buildOpsEnvSearchPaths, loadEnvFiles } from "@delexec/runtime-utils";
 import { createRelayHttpTransportAdapter } from "./relay-http.js";
+import {
+  buildAlertPayload,
+  createAlertState,
+  deliverAlert,
+  flattenAttentionToAlerts,
+  normalizeAlertConfig,
+  redactAlertConfig,
+  recordDelivery,
+  startAlertLoop
+} from "./alerts.js";
 
 const PLATFORM_API_VERSION = readPackageVersion(import.meta.url);
 
@@ -49,7 +59,11 @@ loadEnvFiles([
 
 const HEARTBEAT_INTERVAL_S = 30;
 const DEGRADED_THRESHOLD_S = 90;
-const OFFLINE_THRESHOLD_S = 180;
+// NFR-R05 asks for offline detection within 2 minutes; 180s could not meet it
+// no matter how promptly anything downstream reacted. Four missed heartbeats
+// at a 30s interval is the tightest value that still tolerates one late beat
+// plus scheduling jitter without declaring a healthy device dead.
+const OFFLINE_THRESHOLD_S = 120;
 const REVIEW_TEST_CALLER_ID = "caller_review_bot";
 const REVIEW_TEST_RECEIVER_PREFIX = "platform-review-bot";
 const DEFAULT_REQUEST_EVENT_HISTORY_LIMIT = 200;
@@ -1757,6 +1771,7 @@ export function createPlatformState(options = {}) {
     metricsEvents,
     auditEvents,
     reviewEvents,
+    alerts: createAlertState(),
     adminApiKey,
     bootstrap: {
       responders: bootstrapResponders.map((item) => ({
@@ -1782,7 +1797,10 @@ export function serializePlatformState(state) {
     artifacts: Array.from(state.artifacts.entries()),
     metricsEvents: state.metricsEvents,
     auditEvents: state.auditEvents,
-    reviewEvents: state.reviewEvents
+    reviewEvents: state.reviewEvents,
+    // Tracked alerts persist so a restart does not re-announce every problem
+    // that was already reported before it.
+    alerts: state.alerts
   };
 }
 
@@ -1811,6 +1829,14 @@ export function hydratePlatformState(state, snapshot) {
   state.metricsEvents.splice(0, state.metricsEvents.length, ...(snapshot.metricsEvents || []));
   state.auditEvents.splice(0, state.auditEvents.length, ...(snapshot.auditEvents || []));
   state.reviewEvents.splice(0, state.reviewEvents.length, ...(snapshot.reviewEvents || []));
+  if (snapshot.alerts) {
+    state.alerts = {
+      ...createAlertState(),
+      ...snapshot.alerts,
+      tracked: snapshot.alerts.tracked || {},
+      deliveries: snapshot.alerts.deliveries || []
+    };
+  }
   return state;
 }
 
@@ -3001,6 +3027,86 @@ function buildCallStateAxes(request) {
       source: request.billing ? "request.billing" : "这次调用没有计费"
     }
   };
+}
+
+// Everything that needs the operator's attention, computed once and read by
+// both the console feed and the alert loop (FR-060/FR-066). Targets are
+// complete here; the read endpoint truncates them for display, while alerting
+// needs every one — a device that happens to sort 21st is not less broken.
+export function buildAttentionItems(state, now = Date.now()) {
+  const items = [];
+
+  const pendingHotlines = Array.from(state.catalog.values()).filter((item) => (item.review_status || "pending") === "pending");
+  if (pendingHotlines.length > 0) {
+    items.push({
+      kind: "hotline_review_pending",
+      severity: "action",
+      count: pendingHotlines.length,
+      summary: `${pendingHotlines.length} 条热线等待审核`,
+      targets: pendingHotlines.map((item) => ({ type: "hotline", id: item.hotline_id, label: item.display_name || item.hotline_id }))
+    });
+  }
+
+  const pendingResponders = Array.from(state.responders.values()).filter((item) => (item.review_status || "pending") === "pending");
+  if (pendingResponders.length > 0) {
+    items.push({
+      kind: "responder_review_pending",
+      severity: "action",
+      count: pendingResponders.length,
+      summary: `${pendingResponders.length} 个责任方等待审核`,
+      targets: pendingResponders.map((item) => ({ type: "responder", id: item.responder_id, label: item.display_name || item.responder_id }))
+    });
+  }
+
+  const stuck = Array.from(state.requests.values()).filter((request) => isStuckCall(request, now));
+  if (stuck.length > 0) {
+    items.push({
+      kind: "call_stuck",
+      severity: "attention",
+      count: stuck.length,
+      summary: `${stuck.length} 个调用超过宽限期仍未到终态`,
+      targets: stuck.map((request) => ({ type: "request", id: request.request_id, label: request.hotline_id || request.request_id }))
+    });
+  }
+
+  // Funds still held on a call that already ended are the ones that cost
+  // money if nobody notices.
+  const strandedHolds = Array.from(state.requests.values()).filter((request) => {
+    if (request.billing?.state !== "held") {
+      return false;
+    }
+    return ["delivered", "failed", "timed_out"].includes(projectExecutionState(request));
+  });
+  if (strandedHolds.length > 0) {
+    items.push({
+      kind: "funds_held_after_end",
+      severity: "attention",
+      count: strandedHolds.length,
+      summary: `${strandedHolds.length} 笔资金在调用结束后仍处于冻结状态`,
+      targets: strandedHolds.map((request) => ({ type: "request", id: request.request_id, label: request.request_id }))
+    });
+  }
+
+  const unavailable = Array.from(state.responders.values())
+    .filter((responder) => (responder.hotline_ids || []).length > 0)
+    .map((responder) => ({ responder, availability: resolveCatalogAvailability(responder) }))
+    .filter((entry) => entry.availability !== "healthy");
+  if (unavailable.length > 0) {
+    items.push({
+      kind: "device_unavailable",
+      severity: "attention",
+      count: unavailable.length,
+      summary: `${unavailable.length} 台设备不可用（离线/降级/维护中）`,
+      targets: unavailable.map((entry) => ({
+        type: "responder",
+        id: entry.responder.responder_id,
+        label: entry.responder.display_name || entry.responder.responder_id,
+        availability_status: entry.availability
+      }))
+    });
+  }
+
+  return items;
 }
 
 // A call is "stuck" when it has started but has not reached any terminal event
@@ -4586,78 +4692,10 @@ export function createPlatformServer({
         if (!auth) {
           return;
         }
-        const now = Date.now();
-        const items = [];
-
-        const pendingHotlines = Array.from(state.catalog.values()).filter((item) => (item.review_status || "pending") === "pending");
-        if (pendingHotlines.length > 0) {
-          items.push({
-            kind: "hotline_review_pending",
-            severity: "action",
-            count: pendingHotlines.length,
-            summary: `${pendingHotlines.length} 条热线等待审核`,
-            targets: pendingHotlines.slice(0, 20).map((item) => ({ type: "hotline", id: item.hotline_id, label: item.display_name || item.hotline_id }))
-          });
-        }
-
-        const pendingResponders = Array.from(state.responders.values()).filter((item) => (item.review_status || "pending") === "pending");
-        if (pendingResponders.length > 0) {
-          items.push({
-            kind: "responder_review_pending",
-            severity: "action",
-            count: pendingResponders.length,
-            summary: `${pendingResponders.length} 个责任方等待审核`,
-            targets: pendingResponders.slice(0, 20).map((item) => ({ type: "responder", id: item.responder_id, label: item.display_name || item.responder_id }))
-          });
-        }
-
-        const stuck = Array.from(state.requests.values()).filter((request) => isStuckCall(request, now));
-        if (stuck.length > 0) {
-          items.push({
-            kind: "call_stuck",
-            severity: "attention",
-            count: stuck.length,
-            summary: `${stuck.length} 个调用超过宽限期仍未到终态`,
-            targets: stuck.slice(0, 20).map((request) => ({ type: "request", id: request.request_id, label: request.hotline_id || request.request_id }))
-          });
-        }
-
-        // Funds still held on a call that already ended are the ones that cost
-        // money if nobody notices.
-        const strandedHolds = Array.from(state.requests.values()).filter((request) => {
-          if (request.billing?.state !== "held") {
-            return false;
-          }
-          return ["delivered", "failed", "timed_out"].includes(projectExecutionState(request));
-        });
-        if (strandedHolds.length > 0) {
-          items.push({
-            kind: "funds_held_after_end",
-            severity: "attention",
-            count: strandedHolds.length,
-            summary: `${strandedHolds.length} 笔资金在调用结束后仍处于冻结状态`,
-            targets: strandedHolds.slice(0, 20).map((request) => ({ type: "request", id: request.request_id, label: request.request_id }))
-          });
-        }
-
-        const unavailable = Array.from(state.responders.values())
-          .filter((responder) => (responder.hotline_ids || []).length > 0)
-          .map((responder) => ({ responder, availability: resolveCatalogAvailability(responder) }))
-          .filter((entry) => entry.availability !== "healthy");
-        if (unavailable.length > 0) {
-          items.push({
-            kind: "device_unavailable",
-            severity: "attention",
-            count: unavailable.length,
-            summary: `${unavailable.length} 台设备不可用（离线/降级/维护中）`,
-            targets: unavailable.slice(0, 20).map((entry) => ({
-              type: "responder",
-              id: entry.responder.responder_id,
-              label: entry.responder.display_name || entry.responder.responder_id,
-              availability_status: entry.availability
-            }))
-          });
-        }
+        const items = buildAttentionItems(state, Date.now()).map((item) => ({
+          ...item,
+          targets: item.targets.slice(0, 20)
+        }));
 
         sendJson(res, 200, {
           generated_at: nowIso(),
@@ -4668,6 +4706,130 @@ export function createPlatformServer({
             { kind: "dispute_open", reason: "争议流程尚未实现（M3）" },
             { kind: "acceptance_expiring", reason: "验收窗口尚未实现（M3）" }
           ]
+        });
+        return;
+      }
+
+      // Alert configuration and its delivery record (FR-066). Read and write
+      // both live here so an operator never has to SSH to the host to change
+      // where alerts go (E6).
+      if (pathname === "/v1/admin/alerts/config" && (method === "GET" || method === "PUT")) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        state.alerts ||= createAlertState();
+
+        if (method === "GET") {
+          sendJson(res, 200, { config: redactAlertConfig(state.alerts.config) });
+          return;
+        }
+
+        const body = await parseJsonBody(req);
+        // An omitted secret keeps the stored one; sending null clears it.
+        // Otherwise the console would have to round-trip a credential it is
+        // never shown just to change the renotify window.
+        const incoming = { ...body };
+        if (incoming.webhook_secret === undefined) {
+          incoming.webhook_secret = state.alerts.config?.webhook_secret ?? null;
+        }
+        const normalized = normalizeAlertConfig(incoming);
+        if (!normalized.valid) {
+          sendError(res, 400, "CONTRACT_INVALID_ALERT_CONFIG", normalized.errors.join("; "));
+          return;
+        }
+
+        state.alerts.config = normalized.config;
+        // The URLs are operational fact worth auditing; the secret is not
+        // recorded anywhere it could be read back (NFR-S03).
+        appendAuditEvent(state, auth, "alerts.config_updated", { type: "alerts", id: "alerts" }, {
+          enabled: normalized.config.enabled,
+          webhook_url: normalized.config.webhook_url,
+          liveness_url: normalized.config.liveness_url,
+          renotify_hours: normalized.config.renotify_hours
+        });
+        await persistPlatformState(onStateChanged, state);
+        sendJson(res, 200, { config: redactAlertConfig(state.alerts.config) });
+        return;
+      }
+
+      if (method === "GET" && pathname === "/v1/admin/alerts/status") {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        state.alerts ||= createAlertState();
+        const deliveries = state.alerts.deliveries || [];
+        const recentFailures = deliveries.filter((entry) => !entry.ok).length;
+        sendJson(res, 200, {
+          config: redactAlertConfig(state.alerts.config),
+          last_pass_at: state.alerts.last_pass_at || null,
+          liveness_last_ping: state.alerts.liveness_last_ping || null,
+          open_alerts: Object.entries(state.alerts.tracked || {}).map(([key, entry]) => ({ key, ...entry })),
+          recent_deliveries: deliveries.slice(-20).reverse(),
+          recent_failure_count: recentFailures,
+          // Saying what this cannot see, next to what it can. An operator who
+          // believes alerting covers a platform outage will read the silence
+          // during one as good news.
+          not_covered: [
+            {
+              kind: "platform_down",
+              reason: "平台自己宕机时无法自我告警——这由存活 ping（liveness_url）交给外部服务判定"
+            },
+            { kind: "dispute_open", reason: "争议流程尚未实现（M3）" },
+            { kind: "acceptance_expiring", reason: "验收窗口尚未实现（M3）" }
+          ]
+        });
+        return;
+      }
+
+      // Send one real alert through the real delivery path. A configuration
+      // that has never delivered anything is a configuration nobody should
+      // trust; this is how it earns that trust before an incident.
+      if (method === "POST" && pathname === "/v1/admin/alerts/test") {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        state.alerts ||= createAlertState();
+        if (!state.alerts.config?.webhook_url) {
+          sendError(res, 400, "CONTRACT_INVALID_ALERT_CONFIG", "no webhook_url is configured");
+          return;
+        }
+
+        const now = Date.now();
+        const payload = buildAlertPayload(
+          {
+            key: "alert_test",
+            kind: "alert_test",
+            severity: "info",
+            target_id: null,
+            target_label: null,
+            summary: "测试告警：这条来自控制台的手动触发，不代表出了问题",
+            event: "test",
+            first_seen_at: new Date(now).toISOString()
+          },
+          { serviceName, now }
+        );
+        payload.text = "测试告警 — 投递链路正常，这条不代表出了问题";
+        const result = await deliverAlert(state.alerts.config, payload);
+        recordDelivery(state.alerts, {
+          at: new Date(now).toISOString(),
+          key: "alert_test",
+          event: "test",
+          kind: "alert_test",
+          target_id: null,
+          ok: Boolean(result.ok),
+          status: result.status ?? null,
+          error: result.error ?? null,
+          attempts: result.attempts ?? null
+        });
+        await persistPlatformState(onStateChanged, state);
+        sendJson(res, result.ok ? 200 : 502, {
+          delivered: Boolean(result.ok),
+          status: result.status ?? null,
+          error: result.error ?? null,
+          attempts: result.attempts ?? null
         });
         return;
       }
@@ -5394,10 +5556,25 @@ if (isDirectRun()) {
         }
       : null
   });
+  // FR-066: the outbound leg. Runs only in the real service — tests drive
+  // runAlertPass directly rather than waiting on a timer.
+  const stopAlertLoop = startAlertLoop({
+    state,
+    serviceName,
+    consoleUrl: process.env.PLATFORM_CONSOLE_URL || null,
+    buildAlerts: (now) => flattenAttentionToAlerts(buildAttentionItems(state, now)),
+    onStateChanged: persistence
+      ? async (currentState) => {
+          await persistence.saveSnapshot(serializePlatformState(currentState));
+        }
+      : null
+  });
+
   server.listen(port, "0.0.0.0", () => {
     console.log(`[${serviceName}] listening on ${port}`);
   });
   server.on("close", () => {
+    stopAlertLoop();
     if (persistence) {
       void persistence.saveSnapshot(serializePlatformState(state));
       void persistence.close();

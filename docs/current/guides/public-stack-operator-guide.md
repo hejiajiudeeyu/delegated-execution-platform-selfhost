@@ -123,6 +123,37 @@ curl -fsS -X POST "$BASE/gateway/session/recover" \
 
 Keep the console passphrase in the deployment handoff so recovery stays an exception, not the normal unlock path.
 
+## Alerts
+
+Without this configured, the platform never tells you anything: every problem
+waits until you happen to open the console. Set it up in
+`Settings -> Alerts`, which needs no SSH.
+
+**Webhook** — the platform POSTs one JSON object per alert to a URL you
+control (a Feishu/WeCom bot, Bark, ntfy, or your own script). Set a signing
+secret and each POST carries `x-delexec-signature: sha256=<hmac>` over the raw
+body, so the endpoint can reject anything that is not from this platform.
+Alerts fire when a problem appears, again every `renotify_hours` while it is
+still open, and once more when it clears — silence after an alert always means
+resolved, never forgotten. Use `Send a test alert` before you need it: a
+configuration that has never delivered anything should not be trusted.
+
+Alerts are derived from the same attention feed the console home page shows.
+They are not a second opinion about what counts as a problem.
+
+**Liveness ping (dead man's switch)** — the alert loop runs inside
+platform-api, so it cannot report platform-api being down. Point
+`liveness_url` at an external heartbeat monitor (Healthchecks.io, an Uptime
+Kuma push monitor, a BetterStack heartbeat); the platform GETs it on a
+schedule and the monitor alarms when the pings stop. **This is the only part
+of the setup that covers a platform outage** — the 2026-07-04 incident lasted
+5.5 hours and was found by walking into it. Configure both legs, not just the
+webhook.
+
+Delivery failures are recorded and shown on the same page. A red row there
+means alerts are not reaching you, which is operationally the same as having
+no alerts at all.
+
 ## Smoke Validation
 
 Recommended checks:
