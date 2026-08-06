@@ -15,8 +15,12 @@ import {
   REQUEST_PROGRESS_MESSAGE_MAX_LENGTH,
   TRUST_TIER,
   buildStructuredError,
+  canonicalizeHotlineVersion,
   canonicalizeResultPackageForSignature,
+  hotlineVersionDigest,
+  hotlineVersionRefOf,
   isExecutionTerminal,
+  validateHotlineVersion,
   validateReconciliationReport,
   validateRequestProgress,
   validateBillingUsage,
@@ -1725,6 +1729,11 @@ export function createPlatformState(options = {}) {
   const apiKeys = new Map();
   const responders = new Map();
   const catalog = new Map();
+  // Frozen HotlineVersions, keyed `${hotline_id}@${version}` (FR-014). The
+  // catalog holds one mutable record per hotline and a resubmission overwrites
+  // it in place, so without this a Call could only say WHICH hotline it used,
+  // never WHICH CONTRACT — and M3 has to adjudicate against a contract.
+  const hotlineVersions = new Map();
   const templates = new Map();
   const requests = new Map();
   const submissions = new Map();
@@ -1768,6 +1777,7 @@ export function createPlatformState(options = {}) {
     apiKeys,
     responders,
     catalog,
+    hotlineVersions,
     templates,
     requests,
     submissions,
@@ -1796,6 +1806,7 @@ export function serializePlatformState(state) {
     apiKeys: Array.from(state.apiKeys.entries()),
     responders: Array.from(state.responders.entries()),
     catalog: Array.from(state.catalog.entries()),
+    hotlineVersions: Array.from(state.hotlineVersions.entries()),
     templates: Array.from(state.templates.entries()),
     requests: Array.from(state.requests.entries()),
     submissions: Array.from(state.submissions.entries()),
@@ -1820,6 +1831,7 @@ export function hydratePlatformState(state, snapshot) {
     ["apiKeys", state.apiKeys],
     ["responders", state.responders],
     ["catalog", state.catalog],
+    ["hotlineVersions", state.hotlineVersions],
     ["templates", state.templates],
     ["requests", state.requests],
     ["submissions", state.submissions],
@@ -2235,11 +2247,95 @@ function determineSubmissionVersion(state, hotlineId) {
   return Number(current?.submission_version || 0) + 1;
 }
 
+// ------------------------------------------------------- HotlineVersion (FR-014)
+//
+// `submission_version` counts submissions. It does not freeze anything: the
+// catalog record it labels is overwritten in place on the next submission, and
+// nothing carries it into a Call. A Call that cannot name its contract cannot
+// be adjudicated against one, which is what M3 exists to do.
+//
+// A published version is a frozen copy of the contract fields plus a content
+// digest. Publishing is idempotent by content: republishing an unchanged
+// contract keeps the existing version rather than minting a number that means
+// nothing.
+
+function hotlineVersionKey(hotlineId, version) {
+  return `${hotlineId}@${version}`;
+}
+
+export function listHotlineVersions(state, hotlineId) {
+  return Array.from(state.hotlineVersions.values())
+    .filter((entry) => entry.hotline_id === hotlineId)
+    .sort((left, right) => Number(right.version) - Number(left.version));
+}
+
+export function getHotlineVersion(state, hotlineId, version) {
+  return state.hotlineVersions.get(hotlineVersionKey(hotlineId, version)) || null;
+}
+
+function nextHotlineVersionNumber(state, hotlineId) {
+  const highest = listHotlineVersions(state, hotlineId).reduce(
+    (max, entry) => Math.max(max, Number(entry.version) || 0),
+    0
+  );
+  return String(highest + 1);
+}
+
+/**
+ * Publish the catalog item's current contract as an immutable version, or
+ * return the existing one if the content is unchanged.
+ *
+ * Called on approval (a hotline becomes callable) and again when a Call binds,
+ * which also covers hotlines that were approved before versions existed. Both
+ * points see the approved content, because every resubmission resets the item
+ * to pending/disabled and so cannot be called until re-approved.
+ */
+function ensurePublishedHotlineVersion(state, item) {
+  if (!item) {
+    return null;
+  }
+  const contract = { ...canonicalizeHotlineVersion(item), hotline_id: item.hotline_id };
+  const digest = hotlineVersionDigest(contract);
+
+  const current = item.published_version ? getHotlineVersion(state, item.hotline_id, item.published_version) : null;
+  if (current && current.digest === digest) {
+    return current;
+  }
+
+  const published = {
+    hotline_id: item.hotline_id,
+    version: nextHotlineVersionNumber(state, item.hotline_id),
+    published_at: nowIso(),
+    digest,
+    contract
+  };
+  state.hotlineVersions.set(hotlineVersionKey(published.hotline_id, published.version), published);
+  item.published_version = published.version;
+  item.published_version_digest = digest;
+  return published;
+}
+
+/**
+ * The version a Call is bound to — never the catalog's current record.
+ *
+ * Reading the catalog here would defeat the whole point: the operator would be
+ * shown, and a dispute would be judged against, whatever the contract says now
+ * rather than what it said when the Call was made.
+ */
+export function boundHotlineVersionOf(state, request) {
+  const ref = request?.hotline_version;
+  if (!ref?.hotline_id || !ref?.version) {
+    return null;
+  }
+  return getHotlineVersion(state, ref.hotline_id, ref.version);
+}
+
 function createTaskClaims(state, {
   callerId,
   requestId,
   responderId,
   hotlineId,
+  hotlineVersion = null,
   requestKind = "remote_request",
   billing = null
 }) {
@@ -2258,6 +2354,12 @@ function createTaskClaims(state, {
     hotline_id: hotlineId,
     request_kind: requestKind
   };
+  // The responder is told which contract it is executing, not just which
+  // hotline — and the token is signed, so the binding cannot be edited in
+  // transit.
+  if (hotlineVersion) {
+    claims.hotline_version = cloneValue(hotlineVersion);
+  }
   if (billing) {
     claims.billing = cloneValue(billing);
   }
@@ -2275,6 +2377,9 @@ function createDeliveryMeta(state, request, catalogItem, resultDelivery) {
     request_id: request.request_id,
     responder_id: catalogItem.responder_id,
     hotline_id: catalogItem.hotline_id,
+    // Which contract, not just which hotline — the responder validates its
+    // output against this, and delivery is judged against it.
+    hotline_version: request.hotline_version || null,
     task_delivery: {
       kind: catalogItem.task_delivery_address.startsWith("local://") ? "local" : "email",
       address: catalogItem.task_delivery_address,
@@ -2477,6 +2582,22 @@ async function issueTaskToken(state, auth, body) {
     return { error: { code: "REQUEST_BINDING_MISMATCH", message: "responder_id or hotline_id does not match existing request", retryable: false }, statusCode: 409 };
   }
 
+  // Pin the contract before anything is charged or dispatched (FR-014). A
+  // request that is re-issued keeps the version it first bound to: re-issuing
+  // a token is not a new agreement, and silently upgrading the contract under a
+  // caller is the failure this pin exists to prevent.
+  const publishedVersion = ensurePublishedHotlineVersion(state, catalogItem);
+  const boundVersion = request.hotline_version || hotlineVersionRefOf(publishedVersion);
+  if (boundVersion && !request.hotline_version) {
+    request.hotline_version = boundVersion;
+    appendRequestEvent(request, "HOTLINE_VERSION_BOUND", {
+      actor_type: "system",
+      hotline_id: boundVersion.hotline_id,
+      version: boundVersion.version,
+      digest: boundVersion.digest
+    });
+  }
+
   const billing = await applyBillingHoldIfNeeded(state, auth, request, catalogItem, body);
   if (billing.error) {
     return billing;
@@ -2487,6 +2608,7 @@ async function issueTaskToken(state, auth, body) {
     requestId: body.request_id,
     responderId: body.responder_id,
     hotlineId: body.hotline_id,
+    hotlineVersion: boundVersion,
     billing: billing.billingClaims
   });
   request.caller_id = auth.user_id;
@@ -4888,6 +5010,24 @@ export function createPlatformServer({
           (event) => event.request_id === request.request_id || event.target_id === request.request_id
         );
 
+        const boundVersion = boundHotlineVersionOf(state, request);
+        const boundVersionSummary = request.hotline_version
+          ? {
+              version: request.hotline_version.version,
+              digest: request.hotline_version.digest || null,
+              recoverability: request.hotline_version.recoverability || null,
+              published_at: boundVersion?.published_at || null,
+              // `tracked:false` keeps the M1 convention: an unbuilt or absent
+              // thing says so rather than letting its silence read as health.
+              tracked: Boolean(boundVersion),
+              integrity: boundVersion ? (validateHotlineVersion(boundVersion).valid ? "verified" : "digest_mismatch") : null,
+              superseded_by_current: Boolean(
+                catalogItem?.published_version && catalogItem.published_version !== request.hotline_version.version
+              ),
+              contract: boundVersion?.contract || null
+            }
+          : { tracked: false, reason: "call predates versioned hotline contracts" };
+
         sendJson(res, 200, {
           request_id: request.request_id,
           caller_id: request.caller_id,
@@ -4924,9 +5064,15 @@ export function createPlatformServer({
                 display_name: catalogItem.display_name || null,
                 status: catalogItem.status || null,
                 review_status: catalogItem.review_status || null,
-                catalog_visibility: resolveCatalogVisibility(state, catalogItem)
+                catalog_visibility: resolveCatalogVisibility(state, catalogItem),
+                published_version: catalogItem.published_version || null
               }
             : null,
+          // Which contract this call was made under, and whether the hotline
+          // has moved on since. An operator judging a delivery needs the
+          // version the call bound to, not the one on the shelf today; a call
+          // predating versions says so rather than borrowing the current one.
+          hotline_version: boundVersionSummary,
           audit_events: auditEvents
         });
         return;
@@ -5430,14 +5576,55 @@ export function createPlatformServer({
         item.reviewed_at = nowIso();
         item.reviewed_by = describeActor(auth).actor_id;
         item.review_reason = body.reason || null;
-        appendAuditEvent(state, auth, "hotline.approved", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null });
+        // Approval is publication: this is the moment the contract becomes
+        // callable, so this is the moment it gets frozen under a version.
+        const publishedVersion = ensurePublishedHotlineVersion(state, item);
+        appendAuditEvent(
+          state,
+          auth,
+          "hotline.approved",
+          { type: "hotline", id: item.hotline_id },
+          { reason: body.reason || null, version: publishedVersion?.version || null, digest: publishedVersion?.digest || null }
+        );
         appendReviewEvent(state, auth, "approved", { type: "hotline", id: item.hotline_id }, { reason: body.reason || null, responder_id: item.responder_id, hotline_id: item.hotline_id });
         await persistPlatformState(onStateChanged, state);
         sendJson(res, 200, {
           hotline_id: item.hotline_id,
           status: item.status,
           review_status: item.review_status,
-          catalog_visibility: resolveCatalogVisibility(state, item)
+          catalog_visibility: resolveCatalogVisibility(state, item),
+          published_version: publishedVersion?.version || null,
+          published_version_digest: publishedVersion?.digest || null
+        });
+        return;
+      }
+
+      const adminHotlineVersionsMatch = pathname.match(/^\/v2\/admin\/hotlines\/([^/]+)\/versions$/);
+      if (method === "GET" && adminHotlineVersionsMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const hotlineId = adminHotlineVersionsMatch[1];
+        const item = state.catalog.get(hotlineId) || null;
+        const versions = listHotlineVersions(state, hotlineId);
+        if (!item && versions.length === 0) {
+          sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
+          return;
+        }
+        sendJson(res, 200, {
+          hotline_id: hotlineId,
+          published_version: item?.published_version || null,
+          versions: versions.map((entry) => ({
+            version: entry.version,
+            published_at: entry.published_at,
+            digest: entry.digest,
+            // Report whether the stored record still hashes to its own digest.
+            // A version that no longer does was edited in place, and saying so
+            // is the only way that ever becomes visible.
+            integrity: validateHotlineVersion(entry).valid ? "verified" : "digest_mismatch",
+            contract: entry.contract
+          }))
         });
         return;
       }

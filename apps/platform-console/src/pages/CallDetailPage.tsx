@@ -335,6 +335,33 @@ export function CallDetailPage() {
                         <span className="text-muted-foreground">热线</span>
                         <span className="font-medium">{String(call.hotline.display_name || call.hotline.hotline_id)}</span>
                       </div>
+                      {/* Which contract this call agreed to — not the one on the
+                          shelf today. Judging a delivery against the current
+                          contract is the mistake the pin exists to prevent. */}
+                      <div className="mt-2 flex justify-between gap-3">
+                        <span className="text-muted-foreground">契约版本</span>
+                        {call.hotline_version?.tracked ? (
+                          <span className="text-right">
+                            <span className="font-medium">v{call.hotline_version.version}</span>
+                            {call.hotline_version.superseded_by_current && (
+                              <span className="ml-1.5 text-xs text-muted-foreground">
+                                （热线已更新到 v{String(call.hotline.published_version ?? "?")}，本次调用不受影响）
+                              </span>
+                            )}
+                            {call.hotline_version.integrity === "digest_mismatch" && (
+                              <span className="ml-1.5 text-xs text-destructive">内容与摘要不符</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">未记录（早于契约版本化）</span>
+                        )}
+                      </div>
+                      {call.hotline_version?.tracked && call.hotline_version.digest && (
+                        <div className="mt-1 flex justify-between gap-3">
+                          <span className="text-muted-foreground">内容摘要</span>
+                          <span className="font-mono text-xs">{call.hotline_version.digest.slice(7, 19)}…</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </CardContent>

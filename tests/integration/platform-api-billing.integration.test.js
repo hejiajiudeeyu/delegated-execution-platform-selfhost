@@ -618,6 +618,9 @@ describe("platform-api billing enforcement integration", () => {
       });
       expect(events.status).toBe(200);
       expect(events.body.items.map((event) => event.event_type)).toEqual([
+        // The contract is pinned before anything is charged: a hold taken
+        // against a contract that could still change is a hold against nothing.
+        "HOTLINE_VERSION_BOUND",
         "BILLING_HELD",
         "TASK_TOKEN_ISSUED",
         "FAILED",

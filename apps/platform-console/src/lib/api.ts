@@ -212,7 +212,23 @@ export interface CallDetail {
   billing: Record<string, unknown> | null;
   responder: Record<string, unknown> | null;
   hotline: Record<string, unknown> | null;
+  hotline_version: CallHotlineVersion | null;
   audit_events: Record<string, unknown>[];
+}
+
+// Which contract the call was made under. `tracked: false` means the call has
+// no pin at all — it predates versioned contracts — and must not be shown the
+// hotline's current contract instead.
+export interface CallHotlineVersion {
+  tracked: boolean;
+  reason?: string;
+  version?: string;
+  digest?: string | null;
+  recoverability?: string | null;
+  published_at?: string | null;
+  integrity?: "verified" | "digest_mismatch" | null;
+  superseded_by_current?: boolean;
+  contract?: Record<string, unknown> | null;
 }
 
 export interface AlertConfig {
