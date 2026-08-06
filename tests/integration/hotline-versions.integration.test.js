@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createPlatformServer, createPlatformState } from "@delexec/platform-api";
 import { closeServer, jsonRequest, listenServer } from "../helpers/http.js";
+import { publishableContract } from "../helpers/hotline-contract.js";
 
 const ADMIN_KEY = "sk_admin_hotline_versions";
 
@@ -62,8 +63,7 @@ describe("immutable hotline versions", () => {
         task_delivery_address: "local://contract-test",
         task_types: ["parse"],
         tags: ["contract-test"],
-        input_schema: { type: "object", required: ["document"], properties: { document: { type: "string" } } },
-        output_schema: { type: "object", properties: { markdown: { type: "string" } } },
+        ...publishableContract(),
         ...overrides
       }
     });
@@ -162,7 +162,9 @@ describe("immutable hotline versions", () => {
       integrity: "verified",
       superseded_by_current: true
     });
-    expect(detail.body.hotline_version.contract.limitations ?? null).toBeNull();
+    // The pinned contract holds what it held at binding time, not the text the
+    // provider substituted afterwards.
+    expect(JSON.stringify(detail.body.hotline_version.contract.limitations)).not.toContain("10MB");
     expect(detail.body.hotline.published_version).toBe("2");
   });
 

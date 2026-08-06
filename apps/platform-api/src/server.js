@@ -20,6 +20,7 @@ import {
   hotlineVersionDigest,
   hotlineVersionRefOf,
   isExecutionTerminal,
+  validateHotlineContract,
   validateHotlineVersion,
   validateReconciliationReport,
   validateRequestProgress,
@@ -351,6 +352,12 @@ function createResponderIdentity({
       output_schema: outputSchema,
       input_attachments: inputAttachments,
       output_attachments: outputAttachments,
+      // Examples used to reach only the template bundle, so the bootstrap
+      // hotlines looked complete in the catalogue while carrying no worked
+      // example at all — the same split the production data turned out to have.
+      // A fixture that its own publication rule would reject is a bad fixture.
+      input_examples: inputExamples,
+      output_examples: outputExamples,
       responder_public_key_pem: keyPair.publicKeyPem,
       responder_public_keys_pem: [keyPair.publicKeyPem],
       task_delivery_address: taskDeliveryAddress
@@ -1575,14 +1582,14 @@ export function createPlatformState(options = {}) {
             {
               title: "产品宣传图生成",
               description: "生成一款高端护肤品的产品宣传图，无参考图",
-              params: { prompt: "一款高端护肤精华的产品宣传图，背景简洁纯白，柔和的影棚光线，高端编辑风格", style_preset: "product_clean", output_format: "jpeg", quantity: 2, aspect_ratio: "1:1" },
+              input: { prompt: "一款高端护肤精华的产品宣传图，背景简洁纯白，柔和的影棚光线，高端编辑风格", style_preset: "product_clean", output_format: "jpeg", quantity: 2, aspect_ratio: "1:1" },
               attachments: []
             }
           ],
           outputExamples: [
             {
               title: "双变体生成结果",
-              result: { generated_items: [{ attachment_role: "generated_asset_1", format: "jpeg", width: 1024, height: 1024, seed: 8472910 }, { attachment_role: "generated_asset_2", format: "jpeg", width: 1024, height: 1024, seed: 8472911 }], metadata: { generation_time_ms: 14200, pipeline_stage_count: 5, model_version: "starlight-v3.2", style_applied: "product_clean" } },
+              output: { generated_items: [{ attachment_role: "generated_asset_1", format: "jpeg", width: 1024, height: 1024, seed: 8472910 }, { attachment_role: "generated_asset_2", format: "jpeg", width: 1024, height: 1024, seed: 8472911 }], metadata: { generation_time_ms: 14200, pipeline_stage_count: 5, model_version: "starlight-v3.2", style_applied: "product_clean" } },
               attachments: [{ role: "generated_asset_1", filename: "render_001.jpg", mime_type: "image/jpeg" }, { role: "generated_asset_2", filename: "render_002.jpg", mime_type: "image/jpeg" }]
             }
           ],
@@ -1636,14 +1643,14 @@ export function createPlatformState(options = {}) {
             {
               title: "差旅报销政策查询",
               description: "查询公司差旅报销标准",
-              params: { question: "我们公司对员工出差报销的标准是什么？国内二线城市的住宿上限是多少？", language: "zh-CN", max_sources: 3, context_hint: "HR policy" },
+              input: { question: "我们公司对员工出差报销的标准是什么？国内二线城市的住宿上限是多少？", language: "zh-CN", max_sources: 3, context_hint: "HR policy" },
               attachments: []
             }
           ],
           outputExamples: [
             {
               title: "有据可查的回答",
-              result: { answer: "根据公司差旅管理规定（2024年修订版），国内二线城市的住宿报销上限为每晚 450 元人民币（税后）。", confidence: 0.92, sources: [{ title: "差旅管理规定（2024年修订版）- 第3章 住宿标准", excerpt: "二线城市住宿费用报销上限为每晚人民币450元（税后），超标须提前审批。", relevance_score: 0.97 }], follow_up_questions: ["差旅报销流程需要提交哪些材料？", "超标住宿的审批流程是什么？"], retrieval_coverage: "full" },
+              output: { answer: "根据公司差旅管理规定（2024年修订版），国内二线城市的住宿报销上限为每晚 450 元人民币（税后）。", confidence: 0.92, sources: [{ title: "差旅管理规定（2024年修订版）- 第3章 住宿标准", excerpt: "二线城市住宿费用报销上限为每晚人民币450元（税后），超标须提前审批。", relevance_score: 0.97 }], follow_up_questions: ["差旅报销流程需要提交哪些材料？", "超标住宿的审批流程是什么？"], retrieval_coverage: "full" },
               attachments: []
             }
           ],
@@ -1709,14 +1716,14 @@ export function createPlatformState(options = {}) {
             {
               title: "蓝牙耳机产品渲染",
               description: "上传一张耳机照片，生成深色高端背景的产品渲染图",
-              params: { product_description: "一款黑色哑光铝合金外壳的蓝牙耳机，弧形头梁，带软垫耳罩，侧面有金属品牌标识。展示科技感和高端质感。", background_style: "dark_premium", angle: "three_quarter", resolution: "1500x1500", quantity: 2 },
+              input: { product_description: "一款黑色哑光铝合金外壳的蓝牙耳机，弧形头梁，带软垫耳罩，侧面有金属品牌标识。展示科技感和高端质感。", background_style: "dark_premium", angle: "three_quarter", resolution: "1500x1500", quantity: 2 },
               attachments: [{ role: "product_photo", filename: "headphone_raw.jpg", mime_type: "image/jpeg" }]
             }
           ],
           outputExamples: [
             {
               title: "双角度渲染结果",
-              result: { renders: [{ attachment_role: "rendered_image_1", width: 1500, height: 1500, format: "jpeg", background_applied: "dark_premium", angle_applied: "three_quarter" }, { attachment_role: "rendered_image_2", width: 1500, height: 1500, format: "jpeg", background_applied: "dark_premium", angle_applied: "hero_45" }], metadata: { render_time_ms: 22400, model_version: "pixel-renderer-v2.4", background_removal_applied: true } },
+              output: { renders: [{ attachment_role: "rendered_image_1", width: 1500, height: 1500, format: "jpeg", background_applied: "dark_premium", angle_applied: "three_quarter" }, { attachment_role: "rendered_image_2", width: 1500, height: 1500, format: "jpeg", background_applied: "dark_premium", angle_applied: "hero_45" }], metadata: { render_time_ms: 22400, model_version: "pixel-renderer-v2.4", background_removal_applied: true } },
               attachments: [{ role: "rendered_image_1", filename: "render_three_quarter.jpg", mime_type: "image/jpeg" }, { role: "rendered_image_2", filename: "render_hero_45.jpg", mime_type: "image/jpeg" }]
             }
           ],
@@ -5569,6 +5576,22 @@ export function createPlatformServer({
         const item = state.catalog.get(adminHotlineApproveMatch[1]);
         if (!item) {
           sendError(res, 404, "CATALOG_HOTLINE_NOT_FOUND", "hotline not found in catalog");
+          return;
+        }
+        // Approval is publication, so this is where a declaration has to prove
+        // it is a contract (FR-010/FR-013). Checked here rather than at
+        // submission so a device can still enroll and the operator gets one
+        // list of everything the declaration is missing instead of a rejection
+        // the Provider has to decode from a log.
+        const completeness = validateHotlineContract(canonicalizeHotlineVersion(item));
+        if (!completeness.valid) {
+          sendError(
+            res,
+            400,
+            "CONTRACT_HOTLINE_INCOMPLETE",
+            `this hotline cannot be published as a contract: ${completeness.errors.join("; ")}`,
+            { retryable: false, hotline_id: item.hotline_id, problems: completeness.errors }
+          );
           return;
         }
         item.review_status = "approved";

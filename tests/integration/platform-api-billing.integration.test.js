@@ -6,6 +6,7 @@ import { PRICING_MODEL, TRUST_TIER } from "@delexec/contracts";
 import { createPlatformServer, createPlatformState } from "@delexec/platform-api";
 import { createBillingStore } from "../../packages/billing-store/src/index.js";
 import { closeServer, jsonRequest, listenServer } from "../helpers/http.js";
+import { publishableContract } from "../helpers/hotline-contract.js";
 
 function createMemoryPool() {
   const db = newDb();
@@ -317,6 +318,7 @@ describe("platform-api billing enforcement integration", () => {
           hotline_id: "paid.echo.e2e.v1",
           display_name: "Paid Echo E2E",
           responder_public_key_pem: generatePublicKeyPem(),
+          ...publishableContract(),
           task_types: ["paid_echo"],
           capabilities: ["paid.echo"],
           tags: ["billing", "e2e"],

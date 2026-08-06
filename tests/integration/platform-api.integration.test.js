@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPlatformServer, createPlatformState } from "@delexec/platform-api";
 import { createRelayServer } from "@delexec/transport-relay";
 import { closeServer, jsonRequest, listenServer } from "../helpers/http.js";
+import { publishableContract } from "../helpers/hotline-contract.js";
 
 describe("platform-api integration", () => {
   let server;
@@ -509,6 +510,7 @@ describe("platform-api integration", () => {
         hotline_id: "legalworks.contract.extractor.v1",
         display_name: "LegalWorks Contract Extractor",
         responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
         task_types: ["contract_extract"],
         capabilities: ["contract.extract", "legal.review"],
         tags: ["legal", "contracts"]
@@ -610,6 +612,7 @@ describe("platform-api integration", () => {
         service_id: "mineru.document.parse.v1",
         display_name: "MinerU Machine A",
         responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
         task_types: ["document_parse"],
         capabilities: ["document.parse.pdf"],
         tags: ["mineru"]
@@ -626,6 +629,7 @@ describe("platform-api integration", () => {
         service_id: "mineru.document.parse.v1",
         display_name: "MinerU Machine B",
         responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
         task_types: ["document_parse"],
         capabilities: ["document.parse.pdf"],
         tags: ["mineru"]
@@ -751,6 +755,7 @@ describe("platform-api integration", () => {
         service_id: "mineru.invalid-delivery.parse.v1",
         display_name: "Invalid Delivery MinerU Parser",
         responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
         task_types: ["document_parse"],
         capabilities: ["document.parse.pdf"]
       }
@@ -810,7 +815,8 @@ describe("platform-api integration", () => {
         responder_id: "responder_dual_role",
         hotline_id: "dual.role.v1",
         display_name: "Dual Role Responder",
-        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem
+        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
       }
     });
     expect(registered.status).toBe(201);
@@ -834,7 +840,8 @@ describe("platform-api integration", () => {
         responder_id: "responder_multi",
         hotline_id: "multi.first.v1",
         display_name: "First Hotline",
-        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem
+        responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
       }
     });
     expect(first.status).toBe(201);
@@ -849,6 +856,7 @@ describe("platform-api integration", () => {
         hotline_id: "multi.second.v1",
         display_name: "Second Hotline",
         responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
         capabilities: ["text.summarize"]
       }
     });
@@ -881,6 +889,7 @@ describe("platform-api integration", () => {
         hotline_id: "review.probe.v1",
         display_name: "Review Probe",
         responder_public_key_pem: state.bootstrap.responders[0].signing.publicKeyPem,
+        ...publishableContract(),
         capabilities: ["text.summarize"],
         task_types: ["text_summarize"]
       }
