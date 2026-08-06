@@ -1490,6 +1490,11 @@ export function createPlatformState(options = {}) {
   const tokenTtlSeconds = Number(options.tokenTtlSeconds || process.env.TOKEN_TTL_SECONDS || 300);
   const adminApiKey =
     options.adminApiKey || process.env.PLATFORM_ADMIN_API_KEY || `sk_admin_${crypto.randomBytes(12).toString("hex")}`;
+  // Whether the operator actually stated this key matters at hydration time:
+  // a stated key is configuration and must win over whatever a restored
+  // database carries, while the random fallback must never revoke a working
+  // one. See hydratePlatformState.
+  const adminApiKeyConfigured = Boolean(options.adminApiKey || process.env.PLATFORM_ADMIN_API_KEY);
   const bootstrapEnabled =
     options.bootstrapEnabled !== undefined
       ? Boolean(options.bootstrapEnabled)
@@ -1773,6 +1778,7 @@ export function createPlatformState(options = {}) {
     reviewEvents,
     alerts: createAlertState(),
     adminApiKey,
+    adminApiKeyConfigured,
     bootstrap: {
       responders: bootstrapResponders.map((item) => ({
         responder_id: item.responder.responder_id,
@@ -1836,6 +1842,32 @@ export function hydratePlatformState(state, snapshot) {
       tracked: snapshot.alerts.tracked || {},
       deliveries: snapshot.alerts.deliveries || []
     };
+  }
+
+  // The snapshot carries its own apiKeys map, and the loop above replaces ours
+  // with it — which silently threw away the admin key the operator configured.
+  // Two failures came out of that, and the restore rehearsal hit the first:
+  //
+  //   1. a stack restored from a backup could not be administered with the
+  //      .env its operator actually holds, because only the key baked into the
+  //      snapshot on the day the database was first empty still authenticated;
+  //   2. rotating PLATFORM_ADMIN_API_KEY looked like it worked — the service
+  //      restarted clean — while the old key kept authenticating forever.
+  //
+  // A stated key is configuration and wins. An unstated one changes nothing,
+  // because the fallback is random per boot and would otherwise revoke the
+  // working key on every restart.
+  if (state.adminApiKeyConfigured && state.adminApiKey) {
+    for (const [key, value] of state.apiKeys) {
+      if (value?.type === "admin" && value?.admin_id === "platform_admin") {
+        state.apiKeys.delete(key);
+      }
+    }
+    state.apiKeys.set(state.adminApiKey, {
+      type: "admin",
+      admin_id: "platform_admin",
+      scopes: ["admin", "operator"]
+    });
   }
   return state;
 }
