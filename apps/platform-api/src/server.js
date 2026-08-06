@@ -1266,10 +1266,20 @@ function buildMarketplaceHotlineDetail(state, item) {
         }
       : null,
     related_hotlines: relatedHotlines,
-    input_schema: item.input_schema || template?.input_schema || null,
-    output_schema: item.output_schema || template?.output_schema || null,
-    input_attachments: item.input_attachments || template?.input_attachments || null,
-    output_attachments: item.output_attachments || template?.output_attachments || null,
+    // Only what the hotline actually declared.
+    //
+    // These used to fall back to the template bundle, whose built-in default is
+    // a generic {text, instruction} -> {summary} shape. So a hotline that
+    // declared no schema was advertised as a text summarizer. On 2026-08-06
+    // that is exactly what production was doing with a PDF parser: the page
+    // looked complete and every field on it was wrong. A missing contract has
+    // to read as missing — an invented one is worse than silence, because
+    // someone will call it.
+    contract_declared: Boolean(item.input_schema || item.output_schema),
+    input_schema: item.input_schema || null,
+    output_schema: item.output_schema || null,
+    input_attachments: item.input_attachments || null,
+    output_attachments: item.output_attachments || null,
     template_ref: item.template_ref || null
   };
 }
