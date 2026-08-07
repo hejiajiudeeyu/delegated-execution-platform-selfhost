@@ -3149,6 +3149,12 @@ const EXECUTION_FROM_LEGACY_EVENT = Object.freeze({
   COMPLETED: "delivered",
   FAILED: "failed",
   TIMED_OUT: "timed_out",
+  // An operator closing an abandoned call is the only way some calls will ever
+  // reach a terminal state: the device that owned them is gone, so no
+  // reconciliation report is ever coming. Without this the attention feed —
+  // and the alerting that shares its computation — can never go quiet, and an
+  // alert that cannot close teaches the operator to ignore all of them.
+  CANCELED: "canceled",
   ACKED: "executing",
   TASK_TOKEN_ISSUED: "submitted",
   DELIVERY_META_ISSUED: "submitted"
@@ -5091,6 +5097,168 @@ export function createPlatformServer({
           // predating versions says so rather than borrowing the current one.
           hotline_version: boundVersionSummary,
           audit_events: auditEvents
+        });
+        return;
+      }
+
+      // The operator's only way to end a call that nothing else will end.
+      //
+      // A device that is gone will never send a reconciliation report, so its
+      // calls sit un-terminal forever. They then sit in the attention feed
+      // forever, and — since FR-066 alerting reuses that same computation —
+      // they page every renotify window forever. CHG-2026-197 promised that
+      // silence after an alert means resolved; an item no action can resolve
+      // breaks that promise for every other item too.
+      //
+      // This closes the call. It never settles: like the reconciliation
+      // endpoint, it can only refund, because an operator ending an abandoned
+      // call is not evidence that anything was delivered.
+      const adminRequestCloseMatch = pathname.match(/^\/v1\/admin\/requests\/([^/]+)\/close$/);
+      if (method === "POST" && adminRequestCloseMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const request = state.requests.get(adminRequestCloseMatch[1]);
+        if (!request) {
+          sendError(res, 404, "REQUEST_NOT_FOUND", "no request found with this id");
+          return;
+        }
+        const body = await parseJsonBody(req);
+        const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+        if (!reason) {
+          // Closing a call is a judgement, and a judgement with no stated
+          // reason is the unauditable operator action NFR-S05 exists to stop.
+          sendError(res, 400, "CONTRACT_INVALID_REQUEST_EVENT", "reason is required to close a call", {
+            retryable: false
+          });
+          return;
+        }
+
+        const executionBefore = projectExecutionState(request);
+        if (["delivered", "failed", "timed_out", "rejected", "canceled"].includes(executionBefore)) {
+          sendError(res, 409, "CONTRACT_EXECUTION_TERMINAL", `call already ended as ${executionBefore}`, {
+            retryable: false,
+            execution: executionBefore
+          });
+          return;
+        }
+
+        appendRequestEvent(request, "CANCELED", {
+          actor_type: "operator",
+          actor_id: describeActor(auth).actor_id,
+          reason,
+          finished_at: nowIso()
+        });
+
+        // Money moves only when it is held. A settlement that already happened
+        // is left alone and said out loud rather than quietly reversed —
+        // reversing it here would be the operator inventing an acceptance
+        // decision that never took place.
+        let billingOutcome = "none";
+        if (request.billing?.state === "held" && state.billingStore) {
+          try {
+            const refund = await state.billingStore.applyBalanceDelta({
+              tenantId: request.billing.tenant_id,
+              deltaCents: request.billing.hold_amount_cents,
+              kind: "refund",
+              direction: "system",
+              requestId: request.request_id,
+              recordedAt: new Date()
+            });
+            request.billing.state = "refunded";
+            request.billing.refund_ledger_id = refund.ledger_id;
+            request.billing.refunded_at = refund.recorded_at;
+            appendRequestEvent(request, "BILLING_REFUNDED", {
+              actor_type: "platform",
+              event_name: BILLING_EVENT.REQUEST_REFUNDED_FAILED,
+              amount_cents: request.billing.hold_amount_cents,
+              ledger_id: refund.ledger_id
+            });
+            billingOutcome = "refunded";
+          } catch (error) {
+            // The call still closes. Leaving it un-terminal because a refund
+            // failed would keep the alert open for a reason the operator
+            // cannot act on either.
+            billingOutcome = "refund_failed";
+            console.error("[platform-api] refund on operator close failed:", error);
+          }
+        } else if (request.billing?.state) {
+          billingOutcome = `left_as_${request.billing.state}`;
+        }
+
+        appendAuditEvent(
+          state,
+          auth,
+          "call.closed_by_operator",
+          { type: "request", id: request.request_id },
+          { reason, execution_before: executionBefore, billing: billingOutcome }
+        );
+        await persistPlatformState(onStateChanged, state);
+        sendJson(res, 200, {
+          request_id: request.request_id,
+          execution: projectExecutionState(request),
+          execution_before: executionBefore,
+          billing: billingOutcome,
+          reason
+        });
+        return;
+      }
+
+      // Retiring a device is what makes its absence stop being news.
+      //
+      // `device_unavailable` counts every responder that still holds a hotline
+      // and is not healthy, so a fixture device from a June rehearsal reports
+      // as a problem forever. Disabling its hotlines does not help — the feed
+      // reads the responder's own hotline list. The record is kept; only the
+      // claim to be serving something is withdrawn.
+      const adminResponderRetireMatch = pathname.match(/^\/v2\/admin\/responders\/([^/]+)\/retire$/);
+      if (method === "POST" && adminResponderRetireMatch) {
+        const auth = requireOperator(req, res, state);
+        if (!auth) {
+          return;
+        }
+        const responder = state.responders.get(adminResponderRetireMatch[1]);
+        if (!responder) {
+          sendError(res, 404, "RESPONDER_NOT_FOUND", "no responder found with this id");
+          return;
+        }
+        const body = await parseJsonBody(req);
+        const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+        if (!reason) {
+          sendError(res, 400, "CONTRACT_INVALID_RESPONDER_REGISTER_BODY", "reason is required to retire a device", {
+            retryable: false
+          });
+          return;
+        }
+
+        const retiredHotlines = [...(responder.hotline_ids || [])];
+        for (const hotlineId of retiredHotlines) {
+          const item = state.catalog.get(hotlineId);
+          if (item) {
+            item.status = "disabled";
+          }
+        }
+        responder.retired_at = nowIso();
+        responder.retired_by = describeActor(auth).actor_id;
+        responder.retire_reason = reason;
+        responder.retired_hotline_ids = retiredHotlines;
+        responder.hotline_ids = [];
+        responder.status = "disabled";
+
+        appendAuditEvent(
+          state,
+          auth,
+          "responder.retired",
+          { type: "responder", id: responder.responder_id },
+          { reason, hotline_ids: retiredHotlines }
+        );
+        await persistPlatformState(onStateChanged, state);
+        sendJson(res, 200, {
+          responder_id: responder.responder_id,
+          retired_at: responder.retired_at,
+          retired_hotline_ids: retiredHotlines,
+          reason
         });
         return;
       }
